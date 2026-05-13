@@ -66,11 +66,11 @@ apply_executive_css()
 
 # API Configuration
 active_api_key = st.secrets.get("GEMINI_API_KEY")
-# FIXED: Using the canonical model name
-MODEL_ID = "gemini-1.5-flash" 
+# SWAP: Use the full model path string which usually bypasses the 404 auto-routing error
+MODEL_ID = "models/gemini-1.5-flash" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v4.8 | Stable SDK Integration | Production Grade")
+st.caption("v4.9 | API Route Stabilized | Industry-Adaptive")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 Application History"])
 
@@ -93,7 +93,7 @@ with tab1:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
-                    # Explicit client initialization
+                    # Force client to use standard initialization
                     client = genai.Client(api_key=active_api_key)
 
                     prompt = f"""
@@ -123,27 +123,4 @@ with tab1:
                         sm, sa = 0, 0
 
                     # Database logging
-                    c.execute("INSERT INTO applications (date, company, title, status, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", tailored_content, sm, sa))
-                    conn.commit()
-
-                    st.markdown("### 📊 Alignment Scores")
-                    m1, m2 = st.columns(2)
-                    with m1: display_colored_metric("Industry Match", sm)
-                    with m2: display_colored_metric("ATS Visibility", sa)
-
-                    st.markdown("### 📝 Tailored Resume Document")
-                    st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
-                    
-                    pdf_data = create_pdf(tailored_content)
-                    if pdf_data:
-                        st.download_button("📥 Download PDF", data=pdf_data, file_name=f"Executive_Resume_{company}.pdf")
-
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
-with tab2:
-    st.header("Strategic Tracking System")
-    history_df = pd.read_sql_query("SELECT id, date, company, title, score_match, score_ats FROM applications ORDER BY id DESC", conn)
-    if not history_df.empty:
-        st.dataframe(history_df, use_container_width=True)
+                    c.execute
