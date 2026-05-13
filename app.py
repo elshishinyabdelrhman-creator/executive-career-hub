@@ -17,18 +17,34 @@ c.execute('''CREATE TABLE IF NOT EXISTS applications
               score_before INTEGER, score_after INTEGER, ats_score INTEGER)''')
 conn.commit()
 
-# --- Executive UI Styling ---
+# --- HIGH VISIBILITY UI Styling ---
 def apply_executive_css():
     st.markdown("""
         <style>
-        .metric-card {
-            background: #1a1c24;
-            border: 1px solid #3d4150;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
+        /* Force high contrast for metric labels and values */
+        [data-testid="stMetricValue"] {
+            color: #FFFFFF !important;
+            font-size: 2.2rem !important;
+            font-weight: 700 !important;
         }
-        .stMetric { background-color: #0e1117 !important; border: 1px solid #30363d !important; padding: 15px; border-radius: 12px; }
+        [data-testid="stMetricLabel"] {
+            color: #B0B0B0 !important;
+            font-size: 1rem !important;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        /* Style the card background */
+        div[data-testid="metric-container"] {
+            background-color: #1E1E1E !important;
+            border: 1px solid #333333 !important;
+            padding: 20px !important;
+            border-radius: 15px !important;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
+        }
+        /* Fix visibility for Delta (the +% change) */
+        [data-testid="stMetricDelta"] svg {
+            fill: #4CAF50 !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -74,13 +90,11 @@ with tab1:
                 # Dual-Score Prompt
                 prompt = f"""
                 You are a Senior Recruiter and an ATS System. Analyze this Resume for the role of {title} at {company}.
-                
                 Provide:
-                1. **MATCH SCORE**: Overall experience alignment (0-100).
-                2. **ATS SCORE**: Technical keyword and formatting density (0-100).
-                3. **CRITICAL KEYWORD GAP**: Missing terms for {title}.
-                4. **EXECUTIVE REWRITE**: About Me and 3 AI-Augmented bullets.
-                
+                1. MATCH SCORE: Overall experience alignment (0-100).
+                2. ATS SCORE: Technical keyword and formatting density (0-100).
+                3. CRITICAL KEYWORD GAP: Missing terms.
+                4. EXECUTIVE REWRITE: About Me and 3 AI-Augmented bullets.
                 RESUME: {resume_text}
                 JD: {job_desc}
                 """
@@ -97,7 +111,7 @@ with tab1:
                           (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", "", response.text, sm, st_score, sa))
                 conn.commit()
 
-                # Dashboard Display
+                # Dashboard Display with Forced White Text
                 st.markdown("### 📊 Scoring Dashboard")
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Current Match", f"{sm}%")
