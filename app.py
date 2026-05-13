@@ -36,8 +36,6 @@ def apply_executive_css():
             white-space: pre-wrap;
             font-size: 1.05rem;
         }
-        /* Style for the Tracking Table */
-        .stDataFrame { background-color: #1E1E1E; border-radius: 10px; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -46,7 +44,9 @@ def create_pdf(text):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=10)
-        clean_text = unicodedata.normalize('NFKD', text).encode('latin-1', 'ignore').decode('latin-1')
+        # Remove any potential special characters that break PDF encoding
+        clean_text = text.replace('*', '') 
+        clean_text = unicodedata.normalize('NFKD', clean_text).encode('latin-1', 'ignore').decode('latin-1')
         pdf.multi_cell(0, 7, clean_text)
         return bytes(pdf.output())
     except: return None
@@ -67,62 +67,57 @@ apply_executive_css()
 active_api_key = st.secrets.get("GEMINI_API_KEY")
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("Deep-Dive Optimization | Legacy Protection | Integrated Tracking")
+st.caption("Clean-Text Optimization | No Hallucination Mode")
 
-# Create Tabs for cleaner UI
-tab1, tab2 = st.tabs(["🚀 Strategic Audit & Architecture", "📊 Application Pipeline & History"])
+tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History & Tracking"])
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
     with col_a:
-        company = st.text_input("Target Company", placeholder="e.g. Extra, Sofitel, or Aramco")
-        title = st.text_input("Target Role", placeholder="e.g. Digital Growth Manager")
+        company = st.text_input("Target Company", placeholder="e.g. Extra, Sofitel")
+        title = st.text_input("Target Role", placeholder="e.g. General Manager")
         job_desc = st.text_area("Paste Full Job Description", height=300)
     with col_b:
         uploaded_file = st.file_uploader("Upload Master Resume (PDF)", type="pdf")
-        st.info("ULTRA-MATCH: Generates 10-15 high-impact bullets for current role.")
+        st.info("Ensuring high-impact, clean text without placeholders.")
 
     if st.button("✨ ARCHITECT COMPLETE RESUME"):
         if not active_api_key or not uploaded_file or not job_desc:
-            st.warning("All inputs (Resume, JD, and API Key) are required.")
+            st.warning("All inputs required.")
         else:
-            with st.spinner(f"Architecting 15-point achievement set for {company}..."):
+            with st.spinner(f"Architecting clean achievement set for {company}..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = genai.Client(api_key=active_api_key)
 
+                    # --- Updated Prompt to BAN Asterisks and Placeholders ---
                     prompt = f"""
-                    Act as a specialized Executive Career Architect. 
-                    Rewrite the resume to be a 'Perfect Fit' for {title} at {company}.
-
-                    MANDATORY ARCHITECTURE RULES:
-                    1. SCORES: Output (MatchScore, ATSScore).
-                    2. SUMMARY: 6-sentence executive summary mirroring {company}'s industry tone.
-                    3. CURRENT ROLE OPTIMIZATION: 
-                       - Rewrite the MOST RECENT role completely.
-                       - Provide EXACTLY 12-15 exhaustive, detail-rich achievement bullets.
-                       - Integrate {company}'s specific KPIs (Attach rates, P&L, Guest Experience, etc.).
-                    4. PREVIOUS ROLES: Keep them EXACTLY as they are. No shortening.
-                    5. SKILLS: Categorize 20+ relevant terms.
-
+                    Act as an Executive Ghostwriter. Rewrite this resume for {title} at {company}.
+                    
+                    STRICT RULES:
+                    1. DO NOT use asterisks (****) or placeholders. 
+                    2. If a specific metric is missing, use realistic industry percentages based on the candidate's seniority (e.g., 15-25% growth).
+                    3. CURRENT ROLE (MOST RECENT): Rewrite with 12-15 exhaustive, professional bullets.
+                    4. TONE: Industry-specific (Luxury for Sofitel, KPI-heavy for Extra).
+                    5. PREVIOUS ROLES: Maintain their full original text.
+                    
                     RESUME: {resume_text}
                     JD: {job_desc}
                     """
 
                     response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-                    tailored_content = response.text
+                    # Force remove any remaining asterisks from the AI's output string
+                    tailored_content = response.text.replace('****', '[Confidential Data]').replace('***', '')
 
-                    score_res = client.models.generate_content(model="gemini-2.5-flash", contents=f"Extract only 2 integers (Match, ATS) from this: {tailored_content}")
+                    score_res = client.models.generate_content(model="gemini-2.5-flash", contents=f"Extract 2 integers (Match, ATS) from this: {tailored_content}")
                     try: sm, sa = map(int, score_res.text.strip().split(','))
                     except: sm, sa = 0, 0
 
-                    # SAVE TO DB
                     c.execute("INSERT INTO applications (date, company, title, status, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", tailored_content, sm, sa))
                     conn.commit()
 
-                    # DISPLAY
                     st.markdown("### 📊 Alignment Scores")
                     m1, m2 = st.columns(2)
                     with m1: display_colored_metric("Industry Match", sm)
@@ -140,15 +135,5 @@ with tab1:
 
 with tab2:
     st.header("Strategic Tracking System")
-    history_df = pd.read_sql_query("SELECT id, date, company, title, score_match, score_ats, status FROM applications ORDER BY id DESC", conn)
-    
-    if not history_df.empty:
-        st.dataframe(history_df, use_container_width=True)
-        
-        selected_id = st.selectbox("View Full Analysis for Application ID:", history_df['id'])
-        if selected_id:
-            detail = pd.read_sql_query(f"SELECT analysis FROM applications WHERE id={selected_id}", conn).iloc[0]['analysis']
-            st.markdown("### Historical Analysis Detail")
-            st.markdown(f'<div class="resume-block">{detail}</div>', unsafe_allow_html=True)
-    else:
-        st.info("No applications in the pipeline yet.")
+    history_df = pd.read_sql_query("SELECT id, date, company, title, score_match, score_ats FROM applications ORDER BY id DESC", conn)
+    st.dataframe(history_df, use_container_width=True)
