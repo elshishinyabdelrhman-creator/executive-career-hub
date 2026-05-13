@@ -29,12 +29,12 @@ def apply_executive_css():
         .resume-block {
             background-color: #161B22;
             border: 1px solid #30363D;
-            padding: 30px;
+            padding: 35px;
             border-radius: 10px;
             color: #E6EDF3;
-            line-height: 1.7;
+            line-height: 1.8;
             white-space: pre-wrap;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 1.05rem;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -44,9 +44,8 @@ def create_pdf(text):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=10)
-        # Use multi_cell for long text blocks
         clean_text = unicodedata.normalize('NFKD', text).encode('latin-1', 'ignore').decode('latin-1')
-        pdf.multi_cell(0, 8, clean_text)
+        pdf.multi_cell(0, 7, clean_text)
         return bytes(pdf.output())
     except: return None
 
@@ -66,44 +65,46 @@ apply_executive_css()
 active_api_key = st.secrets.get("GEMINI_API_KEY")
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("Deep-Dive Current Role Optimization | Legacy Protection Mode")
+st.caption("Deep-Dive Optimization | 15-Point Mastery Mode")
 
 col_a, col_b = st.columns([2, 1])
 
 with col_a:
-    company = st.text_input("Target Company", placeholder="e.g. Sofitel, Extra, or Aramco")
-    title = st.text_input("Target Role", placeholder="e.g. General Manager")
+    company = st.text_input("Target Company", placeholder="e.g. Extra, Sofitel, or Aramco")
+    title = st.text_input("Target Role", placeholder="e.g. Digital Growth Manager")
     job_desc = st.text_area("Paste Full Job Description", height=300)
 
 with col_b:
     uploaded_file = st.file_uploader("Upload Master Resume (PDF)", type="pdf")
-    st.info("PRO MODE: This will provide a full, exhaustive rewrite of your CURRENT role to match the JD perfectly, while keeping all past work history exactly as it is.")
+    st.info("ULTRA-MATCH MODE: This will generate 10-15 hyper-convincing bullets for your current role while preserving your legacy history.")
 
-if st.button("✨ ARCHITECT TARGETED RESUME"):
+if st.button("✨ ARCHITECT COMPLETE RESUME"):
     if not active_api_key or not uploaded_file or not job_desc:
         st.warning("All inputs (Resume, JD, and API Key) are required.")
     else:
-        with st.spinner(f"Re-engineering your current impact for {company}..."):
+        with st.spinner(f"Architecting 15-point achievement set for {company}..."):
             try:
                 reader = PdfReader(uploaded_file)
                 resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                 client = genai.Client(api_key=active_api_key)
 
-                # --- The "Surgical" Prompt ---
+                # --- The "15-Point Heavyweight" Prompt ---
                 prompt = f"""
                 Act as a specialized Executive Career Architect. 
-                Your mission is to generate a copy-paste ready resume for {title} at {company}.
+                Your task is to rewrite the resume to be a 'Perfect Fit' for {title} at {company}.
 
-                MANDATORY RULES:
+                MANDATORY ARCHITECTURE RULES:
                 1. SCORES: Output (MatchScore, ATSScore).
-                2. TAILORED SUMMARY: Write a full 5-sentence executive summary mirroring the {company} culture.
-                3. TAILORED SKILLS: Provide a full list of 15+ relevant keywords.
-                4. CURRENT ROLE OPTIMIZATION (THE FIX): 
-                   - Take the MOST RECENT role from the resume and rewrite it COMPLETELY. 
-                   - Provide 6-8 comprehensive, detailed bullet points that use industry KPIs (e.g., if luxury, focus on guest journey/brand; if retail, focus on attach rates/P&L). 
-                   - Ensure these bullets are long, professional, and exhaustive. No shortcuts.
-                5. PREVIOUS ROLES (THE PRESERVATION): 
-                   - List every previous role found in the resume exactly as it is, maintaining its original length and detail. Do not summarize or shorten them.
+                2. SUMMARY: Write a sophisticated 6-sentence summary mirroring {company}'s tone.
+                3. CURRENT ROLE OPTIMIZATION (10-15 BULLETS): 
+                   - Take the MOST RECENT role and rewrite it COMPLETELY.
+                   - Provide between 10 to 15 exhaustive, detail-rich achievement bullets.
+                   - Every bullet MUST be a "convincing" blend of your actual data and the JD's required KPIs.
+                   - Use sophisticated phrasing (e.g., 'Orchestrated,' 'Architected,' 'Leveraged AI-driven analytics').
+                   - If it's a Digital Service role, focus on Attach Rates, P&L, and Ecosystems. 
+                   - If it's Hospitality, focus on Guest Experience, Personalization, and Brand Artistry.
+                4. PREVIOUS ROLES: Keep them exactly as they are in the resume. No shortening.
+                5. SKILLS & COMPETENCIES: Categorize 20+ relevant terms for this JD.
 
                 RESUME: {resume_text}
                 JD: {job_desc}
@@ -124,16 +125,16 @@ if st.button("✨ ARCHITECT TARGETED RESUME"):
                 with m1: display_colored_metric("Industry Match", sm)
                 with m2: display_colored_metric("ATS Visibility", sa)
 
-                st.markdown("### 📝 Tailored Resume Architecture")
+                st.markdown("### 📝 Tailored Resume Document")
                 st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
                 
                 # PDF Download
                 pdf_data = create_pdf(tailored_content)
                 if pdf_data:
                     st.download_button(
-                        label="📥 Download Full Strategy (PDF)",
+                        label="📥 Download Tailored Strategy (PDF)",
                         data=pdf_data,
-                        file_name=f"Executive_Resume_{company}.pdf",
+                        file_name=f"Full_Tailored_Resume_{company}.pdf",
                         mime="application/pdf"
                     )
 
