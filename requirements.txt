@@ -1,0 +1,5 @@
+google-genai
+pypdf
+fpdf2
+markdown2
+pandas

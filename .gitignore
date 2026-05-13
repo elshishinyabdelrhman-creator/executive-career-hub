@@ -1,0 +1,44 @@
+# --- Secrets (NEVER commit these) ---
+.env
+.env.*
+.streamlit/secrets.toml
+
+# --- Local app data ---
+# SQLite databases may contain API keys (settings table) and personal
+# application data (companies applied to, AI analyses, HR notes).
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs ---
+*.log
