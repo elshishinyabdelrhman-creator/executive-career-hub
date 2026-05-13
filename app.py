@@ -44,6 +44,7 @@ def create_pdf(text):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=10)
+        # Deep clean text for FPDF compatibility
         clean_text = text.replace('*', '').replace('•', '-')
         clean_text = unicodedata.normalize('NFKD', clean_text).encode('latin-1', 'ignore').decode('latin-1')
         pdf.multi_cell(0, 7, clean_text)
@@ -64,11 +65,12 @@ st.set_page_config(page_title="Executive Resume Architect", layout="wide", page_
 apply_executive_css()
 
 active_api_key = st.secrets.get("GEMINI_API_KEY")
-# Set the model ID correctly for the SDK
+
+# VERIFIED MODEL STRINGS
 MODEL_ID = "gemini-1.5-flash" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("SDK-Optimized | High-Capacity Model")
+st.caption("Advanced SDK Integration | Stable Connection")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History & Tracking"])
 
@@ -85,10 +87,12 @@ with tab1:
         if not active_api_key or not uploaded_file or not job_desc:
             st.warning("All inputs required.")
         else:
-            with st.spinner(f"Architecting for {company}..."):
+            with st.spinner(f"Connecting to Architect Engine..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
+                    
+                    # Initialize Client
                     client = genai.Client(api_key=active_api_key)
 
                     prompt = f"""
@@ -105,12 +109,18 @@ with tab1:
                     JD: {job_desc}
                     """
 
-                    # Call using the verified model ID
-                    response = client.models.generate_content(model=MODEL_ID, contents=prompt)
-                    tailored_content = response.text.replace('****', '').replace('***', '').replace('*', '')
+                    # Execute main tailoring
+                    response = client.models.generate_content(
+                        model=MODEL_ID, 
+                        contents=prompt
+                    )
+                    tailored_content = response.text.replace('****', '').replace('*', '')
 
-                    score_res = client.models.generate_content(model=MODEL_ID, 
-                                contents=f"Extract ONLY 2 integers separated by a comma (Match, ATS) for this: {tailored_content}")
+                    # Execute separate scoring call
+                    score_res = client.models.generate_content(
+                        model=MODEL_ID, 
+                        contents=f"Return exactly two integers separated by a comma representing (Match Score, ATS Score) based on: {tailored_content}"
+                    )
                     
                     try:
                         scores = score_res.text.strip().split(',')
@@ -119,6 +129,7 @@ with tab1:
                     except:
                         sm, sa = 0, 0
 
+                    # Database logging
                     c.execute("INSERT INTO applications (date, company, title, status, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", tailored_content, sm, sa))
                     conn.commit()
@@ -136,7 +147,7 @@ with tab1:
                         st.download_button("📥 Download Tailored Strategy (PDF)", data=pdf_data, file_name=f"Executive_Resume_{company}.pdf")
 
                 except Exception as e:
-                    st.error(f"Analysis Failed: {e}")
+                    st.error(f"Error: {e}")
 
 with tab2:
     st.header("Strategic Tracking System")
