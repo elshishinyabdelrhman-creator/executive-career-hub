@@ -44,7 +44,6 @@ def create_pdf(text):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=10)
-        # Deep clean text for PDF compatibility
         clean_text = text.replace('*', '').replace('#', '').replace('•', '-')
         clean_text = unicodedata.normalize('NFKD', clean_text).encode('latin-1', 'ignore').decode('latin-1')
         pdf.multi_cell(0, 8, clean_text)
@@ -64,15 +63,13 @@ def display_colored_metric(label, value):
 st.set_page_config(page_title="Executive Resume Architect", layout="wide", page_icon="💼")
 apply_executive_css()
 
-# API Configuration
 active_api_key = st.secrets.get("GEMINI_API_KEY")
-# SWAP: Use the full model path string which usually bypasses the 404 auto-routing error
 MODEL_ID = "models/gemini-1.5-flash" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v4.9 | API Route Stabilized | Industry-Adaptive")
+st.caption("v4.9.1 | Syntax Fixed | Industry-Adaptive")
 
-tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 Application History"])
+tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History & Tracking"])
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
@@ -89,11 +86,8 @@ with tab1:
         else:
             with st.spinner(f"Architecting for {company}..."):
                 try:
-                    # Parse PDF
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
-                    
-                    # Force client to use standard initialization
                     client = genai.Client(api_key=active_api_key)
 
                     prompt = f"""
@@ -105,11 +99,9 @@ with tab1:
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
 
-                    # Execute main tailoring
                     response = client.models.generate_content(model=MODEL_ID, contents=prompt)
                     tailored_content = response.text.replace('*', '').replace('#', '')
 
-                    # Execute separate scoring call
                     score_res = client.models.generate_content(
                         model=MODEL_ID, 
                         contents=f"Return only two integers separated by a comma (Match Score, ATS Score) based on: {tailored_content}"
@@ -122,5 +114,28 @@ with tab1:
                     except:
                         sm, sa = 0, 0
 
-                    # Database logging
-                    c.execute
+                    # Correctly placed DB Logic
+                    c.execute("INSERT INTO applications (date, company, title, status, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", tailored_content, sm, sa))
+                    conn.commit()
+
+                    st.markdown("### 📊 Alignment Scores")
+                    m1, m2 = st.columns(2)
+                    with m1: display_colored_metric("Industry Match", sm)
+                    with m2: display_colored_metric("ATS Visibility", sa)
+
+                    st.markdown("### 📝 Tailored Resume Document")
+                    st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
+                    
+                    pdf_data = create_pdf(tailored_content)
+                    if pdf_data:
+                        st.download_button("📥 Download PDF", data=pdf_data, file_name=f"Executive_Resume_{company}.pdf")
+
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+with tab2:
+    st.header("Strategic Tracking System")
+    history_df = pd.read_sql_query("SELECT id, date, company, title, score_match, score_ats FROM applications ORDER BY id DESC", conn)
+    if not history_df.empty:
+        st.dataframe(history_df, use_container_width=True)
