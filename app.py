@@ -5,7 +5,6 @@ from fpdf import FPDF
 import sqlite3
 import pandas as pd
 from datetime import datetime
-import markdown2
 import unicodedata
 
 # --- Database Setup (v4) ---
@@ -35,6 +34,7 @@ def apply_executive_css():
             color: #E6EDF3;
             line-height: 1.7;
             white-space: pre-wrap;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -43,13 +43,12 @@ def create_pdf(text):
     try:
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Arial", size=11)
-        # Handle potential encoding issues for PDF generation
+        pdf.set_font("Arial", size=10)
+        # Use multi_cell for long text blocks
         clean_text = unicodedata.normalize('NFKD', text).encode('latin-1', 'ignore').decode('latin-1')
-        pdf.multi_cell(0, 10, clean_text)
+        pdf.multi_cell(0, 8, clean_text)
         return bytes(pdf.output())
-    except Exception as e:
-        return None
+    except: return None
 
 def display_colored_metric(label, value):
     color = "#00FF00" if value >= 80 else "#FFD700" if value >= 50 else "#FF4B4B"
@@ -66,8 +65,8 @@ apply_executive_css()
 
 active_api_key = st.secrets.get("GEMINI_API_KEY")
 
-st.title("🚀 Full-Scale Resume Architect")
-st.caption("Complete Document Tailoring for Executive Roles")
+st.title("🚀 Strategic Resume Architect")
+st.caption("Deep-Dive Current Role Optimization | Legacy Protection Mode")
 
 col_a, col_b = st.columns([2, 1])
 
@@ -78,29 +77,33 @@ with col_a:
 
 with col_b:
     uploaded_file = st.file_uploader("Upload Master Resume (PDF)", type="pdf")
-    st.info("The AI will now rewrite your ENTIRE career history and provide a downloadable tailored PDF.")
+    st.info("PRO MODE: This will provide a full, exhaustive rewrite of your CURRENT role to match the JD perfectly, while keeping all past work history exactly as it is.")
 
-if st.button("✨ ARCHITECT COMPLETE RESUME"):
+if st.button("✨ ARCHITECT TARGETED RESUME"):
     if not active_api_key or not uploaded_file or not job_desc:
         st.warning("All inputs (Resume, JD, and API Key) are required.")
     else:
-        with st.spinner(f"Re-engineering your entire profile for {company}..."):
+        with st.spinner(f"Re-engineering your current impact for {company}..."):
             try:
                 reader = PdfReader(uploaded_file)
                 resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                 client = genai.Client(api_key=active_api_key)
 
+                # --- The "Surgical" Prompt ---
                 prompt = f"""
-                Act as an Executive Resume Ghostwriter for high-stakes {company} industries.
-                REWRITE the provided Resume to be a 100% PERFECT FIT for {title} at {company}.
-                
-                MANDATORY STRUCTURE:
-                1. SCORES: (MatchScore, ATSScore) as integers.
-                2. FULL REWRITTEN DOCUMENT: 
-                   - TAILORED SUMMARY: 5-6 sentences in the exact tone of {company}.
-                   - TAILORED CORE COMPETENCIES: 15-20 technical and leadership keywords.
-                   - FULL WORK HISTORY: Rewrite EVERY role found in the resume. For each role, provide 4-5 high-impact bullets tailored to the JD's requirements (e.g., if it's Sofitel, use luxury hospitality KPIs; if Extra, use retail/attach rate metrics).
-                   - TAILORED SKILLS: Categorized by Technology, Strategy, and Leadership.
+                Act as a specialized Executive Career Architect. 
+                Your mission is to generate a copy-paste ready resume for {title} at {company}.
+
+                MANDATORY RULES:
+                1. SCORES: Output (MatchScore, ATSScore).
+                2. TAILORED SUMMARY: Write a full 5-sentence executive summary mirroring the {company} culture.
+                3. TAILORED SKILLS: Provide a full list of 15+ relevant keywords.
+                4. CURRENT ROLE OPTIMIZATION (THE FIX): 
+                   - Take the MOST RECENT role from the resume and rewrite it COMPLETELY. 
+                   - Provide 6-8 comprehensive, detailed bullet points that use industry KPIs (e.g., if luxury, focus on guest journey/brand; if retail, focus on attach rates/P&L). 
+                   - Ensure these bullets are long, professional, and exhaustive. No shortcuts.
+                5. PREVIOUS ROLES (THE PRESERVATION): 
+                   - List every previous role found in the resume exactly as it is, maintaining its original length and detail. Do not summarize or shorten them.
 
                 RESUME: {resume_text}
                 JD: {job_desc}
@@ -121,16 +124,16 @@ if st.button("✨ ARCHITECT COMPLETE RESUME"):
                 with m1: display_colored_metric("Industry Match", sm)
                 with m2: display_colored_metric("ATS Visibility", sa)
 
-                st.markdown("### 📝 Tailored Resume Document")
+                st.markdown("### 📝 Tailored Resume Architecture")
                 st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
                 
-                # Restore Download Button
+                # PDF Download
                 pdf_data = create_pdf(tailored_content)
                 if pdf_data:
                     st.download_button(
-                        label="📥 Download Tailored Resume (PDF)",
+                        label="📥 Download Full Strategy (PDF)",
                         data=pdf_data,
-                        file_name=f"Tailored_Resume_{company}.pdf",
+                        file_name=f"Executive_Resume_{company}.pdf",
                         mime="application/pdf"
                     )
 
