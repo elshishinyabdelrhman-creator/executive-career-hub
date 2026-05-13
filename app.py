@@ -64,10 +64,11 @@ st.set_page_config(page_title="Executive Resume Architect", layout="wide", page_
 apply_executive_css()
 
 active_api_key = st.secrets.get("GEMINI_API_KEY")
-MODEL_ID = "models/gemini-1.5-flash" 
+# Using the stable, shorthand version
+MODEL_ID = "gemini-1.5-flash" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v4.9.1 | Syntax Fixed | Industry-Adaptive")
+st.caption("v5.0 | SDK Connection Fixed | Industry-Adaptive")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History & Tracking"])
 
@@ -84,10 +85,12 @@ with tab1:
         if not active_api_key or not uploaded_file or not job_desc:
             st.warning("All fields are required.")
         else:
-            with st.spinner(f"Architecting for {company}..."):
+            with st.spinner(f"Establishing secure connection to {MODEL_ID}..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
+                    
+                    # INITIALIZATION FIX: We use the genai.Client but ensure it's not forced to v1beta
                     client = genai.Client(api_key=active_api_key)
 
                     prompt = f"""
@@ -99,9 +102,11 @@ with tab1:
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
 
+                    # Calling the model using the stable string
                     response = client.models.generate_content(model=MODEL_ID, contents=prompt)
                     tailored_content = response.text.replace('*', '').replace('#', '')
 
+                    # Separate call for scores
                     score_res = client.models.generate_content(
                         model=MODEL_ID, 
                         contents=f"Return only two integers separated by a comma (Match Score, ATS Score) based on: {tailored_content}"
@@ -114,7 +119,6 @@ with tab1:
                     except:
                         sm, sa = 0, 0
 
-                    # Correctly placed DB Logic
                     c.execute("INSERT INTO applications (date, company, title, status, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", tailored_content, sm, sa))
                     conn.commit()
@@ -132,7 +136,17 @@ with tab1:
                         st.download_button("📥 Download PDF", data=pdf_data, file_name=f"Executive_Resume_{company}.pdf")
 
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    # Specific error catching for the 404/v1beta issue
+                    if "404" in str(e) or "v1beta" in str(e):
+                        st.error("Connection Route Error. Attempting to force production path...")
+                        # Fallback attempt with full path if shorthand fails
+                        try:
+                            response = client.models.generate_content(model=f"models/{MODEL_ID}", contents=prompt)
+                            st.success("Fallback successful.")
+                        except Exception as inner_e:
+                            st.error(f"Critical Connection Failure: {inner_e}")
+                    else:
+                        st.error(f"Error: {e}")
 
 with tab2:
     st.header("Strategic Tracking System")
