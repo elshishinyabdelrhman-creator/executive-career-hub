@@ -44,8 +44,8 @@ def create_pdf(text):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=10)
-        # Remove any potential special characters that break PDF encoding
-        clean_text = text.replace('*', '') 
+        # Final safety clean for PDF encoding
+        clean_text = text.replace('*', '').replace('•', '-')
         clean_text = unicodedata.normalize('NFKD', clean_text).encode('latin-1', 'ignore').decode('latin-1')
         pdf.multi_cell(0, 7, clean_text)
         return bytes(pdf.output())
@@ -67,52 +67,56 @@ apply_executive_css()
 active_api_key = st.secrets.get("GEMINI_API_KEY")
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("Clean-Text Optimization | No Hallucination Mode")
+st.caption("High-Capacity Mode | Optimized for Gemini 1.5 Flash")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History & Tracking"])
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
     with col_a:
-        company = st.text_input("Target Company", placeholder="e.g. Extra, Sofitel")
+        company = st.text_input("Target Company", placeholder="e.g. Extra, Sofitel, Aramco")
         title = st.text_input("Target Role", placeholder="e.g. General Manager")
         job_desc = st.text_area("Paste Full Job Description", height=300)
     with col_b:
         uploaded_file = st.file_uploader("Upload Master Resume (PDF)", type="pdf")
-        st.info("Ensuring high-impact, clean text without placeholders.")
+        st.info("Using 1.5-Flash to ensure you can process multiple applications today.")
 
     if st.button("✨ ARCHITECT COMPLETE RESUME"):
         if not active_api_key or not uploaded_file or not job_desc:
             st.warning("All inputs required.")
         else:
-            with st.spinner(f"Architecting clean achievement set for {company}..."):
+            with st.spinner(f"Architecting exhaustive content for {company}..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = genai.Client(api_key=active_api_key)
 
-                    # --- Updated Prompt to BAN Asterisks and Placeholders ---
+                    # --- Unified Prompt for 1.5-Flash ---
                     prompt = f"""
                     Act as an Executive Ghostwriter. Rewrite this resume for {title} at {company}.
                     
                     STRICT RULES:
-                    1. DO NOT use asterisks (****) or placeholders. 
-                    2. If a specific metric is missing, use realistic industry percentages based on the candidate's seniority (e.g., 15-25% growth).
-                    3. CURRENT ROLE (MOST RECENT): Rewrite with 12-15 exhaustive, professional bullets.
-                    4. TONE: Industry-specific (Luxury for Sofitel, KPI-heavy for Extra).
-                    5. PREVIOUS ROLES: Maintain their full original text.
+                    1. NO PLACEHOLDERS: Do not use asterisks (*) or brackets.
+                    2. CURRENT ROLE: Rewrite the MOST RECENT role with 12-15 exhaustive, professional, and metric-heavy achievement bullets.
+                    3. TONE: Adapt perfectly to the {company} industry (Luxury for hotels, Technical/KPI for retail).
+                    4. PREVIOUS ROLES: Maintain full original text; do not shorten.
+                    5. KEYWORDS: Inject 20+ missing technical keywords from the JD.
                     
                     RESUME: {resume_text}
                     JD: {job_desc}
                     """
 
-                    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-                    # Force remove any remaining asterisks from the AI's output string
-                    tailored_content = response.text.replace('****', '[Confidential Data]').replace('***', '')
+                    # Using 1.5-flash for higher quota and reliability
+                    response = client.models.generate_content(model="gemini-1.5-flash", contents=prompt)
+                    tailored_content = response.text.replace('****', '').replace('***', '')
 
-                    score_res = client.models.generate_content(model="gemini-2.5-flash", contents=f"Extract 2 integers (Match, ATS) from this: {tailored_content}")
-                    try: sm, sa = map(int, score_res.text.strip().split(','))
-                    except: sm, sa = 0, 0
+                    # Scoring call
+                    score_res = client.models.generate_content(model="gemini-1.5-flash", 
+                                contents=f"Output ONLY 2 integers separated by a comma (Match, ATS) for this: {tailored_content}")
+                    try: 
+                        sm, sa = map(int, score_res.text.strip().split(','))
+                    except: 
+                        sm, sa = 0, 0
 
                     c.execute("INSERT INTO applications (date, company, title, status, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", tailored_content, sm, sa))
