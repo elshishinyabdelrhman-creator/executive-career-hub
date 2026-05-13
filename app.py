@@ -36,6 +36,8 @@ def apply_executive_css():
             white-space: pre-wrap;
             font-size: 1.05rem;
         }
+        /* Style for the Tracking Table */
+        .stDataFrame { background-color: #1E1E1E; border-radius: 10px; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -65,78 +67,88 @@ apply_executive_css()
 active_api_key = st.secrets.get("GEMINI_API_KEY")
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("Deep-Dive Optimization | 15-Point Mastery Mode")
+st.caption("Deep-Dive Optimization | Legacy Protection | Integrated Tracking")
 
-col_a, col_b = st.columns([2, 1])
+# Create Tabs for cleaner UI
+tab1, tab2 = st.tabs(["🚀 Strategic Audit & Architecture", "📊 Application Pipeline & History"])
 
-with col_a:
-    company = st.text_input("Target Company", placeholder="e.g. Extra, Sofitel, or Aramco")
-    title = st.text_input("Target Role", placeholder="e.g. Digital Growth Manager")
-    job_desc = st.text_area("Paste Full Job Description", height=300)
+with tab1:
+    col_a, col_b = st.columns([2, 1])
+    with col_a:
+        company = st.text_input("Target Company", placeholder="e.g. Extra, Sofitel, or Aramco")
+        title = st.text_input("Target Role", placeholder="e.g. Digital Growth Manager")
+        job_desc = st.text_area("Paste Full Job Description", height=300)
+    with col_b:
+        uploaded_file = st.file_uploader("Upload Master Resume (PDF)", type="pdf")
+        st.info("ULTRA-MATCH: Generates 10-15 high-impact bullets for current role.")
 
-with col_b:
-    uploaded_file = st.file_uploader("Upload Master Resume (PDF)", type="pdf")
-    st.info("ULTRA-MATCH MODE: This will generate 10-15 hyper-convincing bullets for your current role while preserving your legacy history.")
+    if st.button("✨ ARCHITECT COMPLETE RESUME"):
+        if not active_api_key or not uploaded_file or not job_desc:
+            st.warning("All inputs (Resume, JD, and API Key) are required.")
+        else:
+            with st.spinner(f"Architecting 15-point achievement set for {company}..."):
+                try:
+                    reader = PdfReader(uploaded_file)
+                    resume_text = "".join([p.extract_text() or "" for p in reader.pages])
+                    client = genai.Client(api_key=active_api_key)
 
-if st.button("✨ ARCHITECT COMPLETE RESUME"):
-    if not active_api_key or not uploaded_file or not job_desc:
-        st.warning("All inputs (Resume, JD, and API Key) are required.")
+                    prompt = f"""
+                    Act as a specialized Executive Career Architect. 
+                    Rewrite the resume to be a 'Perfect Fit' for {title} at {company}.
+
+                    MANDATORY ARCHITECTURE RULES:
+                    1. SCORES: Output (MatchScore, ATSScore).
+                    2. SUMMARY: 6-sentence executive summary mirroring {company}'s industry tone.
+                    3. CURRENT ROLE OPTIMIZATION: 
+                       - Rewrite the MOST RECENT role completely.
+                       - Provide EXACTLY 12-15 exhaustive, detail-rich achievement bullets.
+                       - Integrate {company}'s specific KPIs (Attach rates, P&L, Guest Experience, etc.).
+                    4. PREVIOUS ROLES: Keep them EXACTLY as they are. No shortening.
+                    5. SKILLS: Categorize 20+ relevant terms.
+
+                    RESUME: {resume_text}
+                    JD: {job_desc}
+                    """
+
+                    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+                    tailored_content = response.text
+
+                    score_res = client.models.generate_content(model="gemini-2.5-flash", contents=f"Extract only 2 integers (Match, ATS) from this: {tailored_content}")
+                    try: sm, sa = map(int, score_res.text.strip().split(','))
+                    except: sm, sa = 0, 0
+
+                    # SAVE TO DB
+                    c.execute("INSERT INTO applications (date, company, title, status, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", tailored_content, sm, sa))
+                    conn.commit()
+
+                    # DISPLAY
+                    st.markdown("### 📊 Alignment Scores")
+                    m1, m2 = st.columns(2)
+                    with m1: display_colored_metric("Industry Match", sm)
+                    with m2: display_colored_metric("ATS Visibility", sa)
+
+                    st.markdown("### 📝 Tailored Resume Document")
+                    st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
+                    
+                    pdf_data = create_pdf(tailored_content)
+                    if pdf_data:
+                        st.download_button("📥 Download Tailored Strategy (PDF)", data=pdf_data, file_name=f"Executive_Resume_{company}.pdf")
+
+                except Exception as e:
+                    st.error(f"Analysis Failed: {e}")
+
+with tab2:
+    st.header("Strategic Tracking System")
+    history_df = pd.read_sql_query("SELECT id, date, company, title, score_match, score_ats, status FROM applications ORDER BY id DESC", conn)
+    
+    if not history_df.empty:
+        st.dataframe(history_df, use_container_width=True)
+        
+        selected_id = st.selectbox("View Full Analysis for Application ID:", history_df['id'])
+        if selected_id:
+            detail = pd.read_sql_query(f"SELECT analysis FROM applications WHERE id={selected_id}", conn).iloc[0]['analysis']
+            st.markdown("### Historical Analysis Detail")
+            st.markdown(f'<div class="resume-block">{detail}</div>', unsafe_allow_html=True)
     else:
-        with st.spinner(f"Architecting 15-point achievement set for {company}..."):
-            try:
-                reader = PdfReader(uploaded_file)
-                resume_text = "".join([p.extract_text() or "" for p in reader.pages])
-                client = genai.Client(api_key=active_api_key)
-
-                # --- The "15-Point Heavyweight" Prompt ---
-                prompt = f"""
-                Act as a specialized Executive Career Architect. 
-                Your task is to rewrite the resume to be a 'Perfect Fit' for {title} at {company}.
-
-                MANDATORY ARCHITECTURE RULES:
-                1. SCORES: Output (MatchScore, ATSScore).
-                2. SUMMARY: Write a sophisticated 6-sentence summary mirroring {company}'s tone.
-                3. CURRENT ROLE OPTIMIZATION (10-15 BULLETS): 
-                   - Take the MOST RECENT role and rewrite it COMPLETELY.
-                   - Provide between 10 to 15 exhaustive, detail-rich achievement bullets.
-                   - Every bullet MUST be a "convincing" blend of your actual data and the JD's required KPIs.
-                   - Use sophisticated phrasing (e.g., 'Orchestrated,' 'Architected,' 'Leveraged AI-driven analytics').
-                   - If it's a Digital Service role, focus on Attach Rates, P&L, and Ecosystems. 
-                   - If it's Hospitality, focus on Guest Experience, Personalization, and Brand Artistry.
-                4. PREVIOUS ROLES: Keep them exactly as they are in the resume. No shortening.
-                5. SKILLS & COMPETENCIES: Categorize 20+ relevant terms for this JD.
-
-                RESUME: {resume_text}
-                JD: {job_desc}
-                """
-
-                response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-                tailored_content = response.text
-
-                # Score Extraction
-                score_res = client.models.generate_content(model="gemini-2.5-flash", 
-                            contents=f"Extract only 2 integers (Match, ATS) from this: {tailored_content}")
-                try: sm, sa = map(int, score_res.text.strip().split(','))
-                except: sm, sa = 0, 0
-
-                # Display Results
-                st.markdown("### 📊 Alignment Scores")
-                m1, m2 = st.columns(2)
-                with m1: display_colored_metric("Industry Match", sm)
-                with m2: display_colored_metric("ATS Visibility", sa)
-
-                st.markdown("### 📝 Tailored Resume Document")
-                st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
-                
-                # PDF Download
-                pdf_data = create_pdf(tailored_content)
-                if pdf_data:
-                    st.download_button(
-                        label="📥 Download Tailored Strategy (PDF)",
-                        data=pdf_data,
-                        file_name=f"Full_Tailored_Resume_{company}.pdf",
-                        mime="application/pdf"
-                    )
-
-            except Exception as e:
-                st.error(f"Analysis Failed: {e}")
+        st.info("No applications in the pipeline yet.")
