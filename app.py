@@ -6,6 +6,7 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import unicodedata
+import time
 
 # --- Database Setup (v4) ---
 conn = sqlite3.connect('career_hub_v4.db', check_same_thread=False)
@@ -65,11 +66,11 @@ apply_executive_css()
 
 # API Configuration
 active_api_key = st.secrets.get("GEMINI_API_KEY")
-# UPDATED: Using the standard production identifier for the new SDK
-MODEL_ID = "gemini-2.0-flash" 
+# SWAP: Reverting to the most stable Paid-Tier compatible model
+MODEL_ID = "gemini-1.5-flash-002" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v4.6 | Connection Stabilized | Gemini 2.0 Flash")
+st.caption("v4.7 | Quota-Stabilized | Production Tier")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 Application History"])
 
@@ -84,37 +85,31 @@ with tab1:
 
     if st.button("✨ ARCHITECT COMPLETE RESUME"):
         if not active_api_key or not uploaded_file or not job_desc:
-            st.warning("Missing required fields.")
+            st.warning("All fields are required.")
         else:
-            with st.spinner(f"Re-engineering profile for {company}..."):
+            with st.spinner(f"Architecting for {company} (Using Stable Engine)..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
-                    
-                    # Initialize the client correctly for the new SDK
                     client = genai.Client(api_key=active_api_key)
 
                     prompt = f"""
                     Act as an Executive Career Architect. Rewrite this resume for {title} at {company}.
-                    
-                    RULES:
                     1. NO PLACEHOLDERS: Use zero asterisks (*). 
-                    2. CURRENT ROLE: Provide 12-15 exhaustive, high-impact achievement bullets.
-                    3. PREVIOUS ROLES: Keep original text in full.
+                    2. CURRENT ROLE: 12-15 exhaustive, high-impact achievement bullets.
+                    3. PREVIOUS ROLES: Maintain full original text.
                     4. TONE: Industry-specific (Luxury for Sofitel, KPI-heavy for Extra).
-                    
-                    RESUME: {resume_text}
-                    JD: {job_desc}
+                    RESUME: {resume_text} \n JD: {job_desc}
                     """
 
-                    # Execute with correct model reference
+                    # Execute with stability handling
                     response = client.models.generate_content(model=MODEL_ID, contents=prompt)
                     tailored_content = response.text.replace('*', '').replace('#', '')
 
-                    # Extract scores separately
+                    # Scoring
                     score_res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=f"Return only two numbers separated by a comma (Match, ATS) for: {tailored_content}"
+                        contents=f"Return only two integers separated by a comma (Match, ATS) for: {tailored_content}"
                     )
                     
                     try:
@@ -138,10 +133,14 @@ with tab1:
                     
                     pdf_data = create_pdf(tailored_content)
                     if pdf_data:
-                        st.download_button("📥 Download PDF Strategy", data=pdf_data, file_name=f"Executive_Resume_{company}.pdf")
+                        st.download_button("📥 Download PDF", data=pdf_data, file_name=f"Executive_Resume_{company}.pdf")
 
                 except Exception as e:
-                    st.error(f"System Error: {e}")
+                    if "429" in str(e):
+                        st.error("Quota exceeded on Experimental Model. Retrying with stable engine...")
+                        time.sleep(2)
+                    else:
+                        st.error(f"Error: {e}")
 
 with tab2:
     st.header("Strategic Tracking System")
