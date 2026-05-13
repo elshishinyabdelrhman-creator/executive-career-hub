@@ -17,14 +17,11 @@ c.execute('''CREATE TABLE IF NOT EXISTS applications
               score_before INTEGER, score_after INTEGER, ats_score INTEGER)''')
 conn.commit()
 
-# --- Professional UI & Traffic Light Logic ---
+# --- Executive UI Styling ---
 def apply_executive_css():
     st.markdown("""
         <style>
-        /* Base Background and Font */
         .main { background-color: #0E1117; }
-        
-        /* Glassmorphism Metric Cards */
         div[data-testid="metric-container"] {
             background-color: #1E1E1E !important;
             border: 1px solid #333333 !important;
@@ -32,17 +29,12 @@ def apply_executive_css():
             border-radius: 15px !important;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
         }
-
-        /* Metric Labels */
         [data-testid="stMetricLabel"] {
             color: #B0B0B0 !important;
             font-size: 0.9rem !important;
             text-transform: uppercase;
-            letter-spacing: 1px;
             font-weight: 600;
         }
-
-        /* Sidebar Styling */
         [data-testid="stSidebar"] {
             background-color: #161B22;
             border-right: 1px solid #30363D;
@@ -53,14 +45,14 @@ def apply_executive_css():
 def display_colored_metric(label, value):
     # Traffic Light Color Logic
     if value >= 80:
-        color = "#00FF00"  # Professional Green
-        status_text = "HIGH"
+        color = "#00FF00"  # Green
+        status = "PASSED"
     elif value >= 50:
-        color = "#FFD700"  # Professional Yellow
-        status_text = "MEDIUM"
+        color = "#FFD700"  # Yellow
+        status = "NEEDS TAILORING"
     else:
-        color = "#FF4B4B"  # Professional Red
-        status_text = "CRITICAL"
+        color = "#FF4B4B"  # Red
+        status = "WEAK MATCH"
     
     st.markdown(f"""
         <div style="
@@ -73,7 +65,7 @@ def display_colored_metric(label, value):
             <p style="color: #888888; margin: 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 1px;">{label.upper()}</p>
             <div style="display: flex; align-items: baseline; gap: 10px;">
                 <span style="color: {color}; margin: 0; font-size: 2.8rem; font-weight: 900;">{value}%</span>
-                <span style="color: {color}; font-size: 0.8rem; font-weight: 600; opacity: 0.8;">{status_text}</span>
+                <span style="color: {color}; font-size: 0.8rem; font-weight: 600; opacity: 0.8;">{status}</span>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -82,30 +74,28 @@ def display_colored_metric(label, value):
 def create_pdf(markdown_text):
     try:
         pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=11)
+        pdf.add_page(); pdf.set_font("Arial", size=11)
         html = markdown2.markdown(markdown_text)
         clean_html = unicodedata.normalize('NFKD', html).encode('latin-1', 'ignore').decode('latin-1')
         pdf.write_html(clean_html)
         return bytes(pdf.output())
     except: return None
 
-# --- Main App Interface ---
+# --- Main App ---
 st.set_page_config(page_title="Executive Career Hub", layout="wide", page_icon="💼")
 apply_executive_css()
 
-# API Key Retrieval
 active_api_key = st.secrets.get("GEMINI_API_KEY")
 
 with st.sidebar:
-    st.title("👨‍💼 Admin")
+    st.title("👨‍💼 Executive Admin")
     if active_api_key:
         st.success("Cloud Key: ACTIVE")
     else:
-        st.error("No API Key Found in Secrets.")
+        st.error("Missing API Key in Secrets.")
     st.divider()
-    st.write("**Strategy:** GM / P&L Ownership")
-    st.write("**Market:** Saudi Arabia (Vision 2030)")
+    st.write("**Target Market:** GCC / Saudi Arabia")
+    st.write("**Focus:** Digital Service Growth & P&L")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 Pipeline Tracker"])
 
@@ -114,36 +104,35 @@ with tab1:
     col_a, col_b = st.columns([2, 1])
     
     with col_a:
-        company = st.text_input("Company", placeholder="e.g. Qynda")
-        title = st.text_input("Target Role", placeholder="e.g. General Manager")
+        company = st.text_input("Company (e.g. Extra, Qynda)", placeholder="United Electronics Co.")
+        title = st.text_input("Target Role", placeholder="Digital Service Growth Manager")
         job_desc = st.text_area("Job Mandate (Paste JD here)", height=280)
     
     with col_b:
         uploaded_file = st.file_uploader("Upload Master Resume", type="pdf")
-        st.info("Analysis prioritizes GCC market growth, AI integration, and operational efficiency.")
+        st.info("AI Audit will specifically target 'Service Product' gaps and 'Attach Rate' KPIs.")
 
-    if st.button("🚀 EXECUTE DUAL-SCORE AUDIT"):
+    if st.button("🚀 EXECUTE DUAL-SCORE & WEAKNESS AUDIT"):
         if not active_api_key or not uploaded_file or not job_desc:
-            st.warning("All fields and API key are required.")
+            st.warning("Ensure Resume, JD, and API Key are present.")
         else:
-            with st.spinner("Decoding ATS and Market Fit..."):
+            with st.spinner("Decoding ATS, Weaknesses, and Market Fit..."):
                 try:
-                    # PDF Extraction
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = genai.Client(api_key=active_api_key)
                     
-                    # Strategic Prompt
+                    # Strategic Audit Prompt
                     prompt = f"""
-                    Role: {title} at {company}.
-                    You are a High-Tier Executive Recruiter and a modern ATS.
-                    
-                    TASK 1: Output 3 integers separated by commas: (MatchScore, ATSScore, TailoredPotential).
-                    TASK 2: Generate a 'Match Analysis' including:
-                    - THE PERFECT ABOUT ME (Tailored for {company}).
-                    - TOP 10 KEYWORDS GAP.
-                    - 3 'AI-AUGMENTED' Bullets for your experience.
-                    
+                    Act as a 2026 Digital Commerce Executive Recruiter. 
+                    Perform a high-stakes audit of this Resume against the JD for {title} at {company}.
+
+                    STRICT OUTPUT STRUCTURE:
+                    1. **SCORES**: Output ONLY 3 integers (MatchScore, ATSScore, TailoredPotential).
+                    2. **CRITICAL WEAKNESS POINTS**: Identify 5 areas where the resume is weak regarding Service Products, Attach Rates, and Marketplace mechanics.
+                    3. **THE 'GAP' INJECTION PLAN**: Provide the Top 10 missing keywords (e.g., Attach Rate, PDP Optimization, Subscription Services) and where to put them.
+                    4. **EXECUTIVE REWRITE**: Provide a 5-sentence 'About Me' and 3 'AI-Augmented' bullets for the resume.
+
                     RESUME: {resume_text}
                     JD: {job_desc}
                     """
@@ -153,48 +142,44 @@ with tab1:
                     
                     # Numeric Extraction
                     score_res = client.models.generate_content(model="gemini-2.5-flash", 
-                                contents=f"Based on this analysis, output ONLY 3 integers separated by commas: {analysis_text}")
+                                contents=f"Output ONLY 3 integers separated by commas: {analysis_text}")
                     try:
                         sm, sa, st_score = map(int, score_res.text.strip().split(','))
                     except: sm, sa, st_score = 0, 0, 0
 
-                    # Save to DB
                     c.execute('''INSERT INTO applications 
                                  (date, company, title, status, notes, analysis, score_before, score_after, ats_score) 
                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
                               (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", "", analysis_text, sm, st_score, sa))
                     conn.commit()
 
-                    # Scoring Dashboard with Dynamic Colors
-                    st.markdown("### 📊 Executive Scoring Dashboard")
+                    # Scoring Dashboard
+                    st.markdown("### 📊 Scoring & Weakness Dashboard")
                     m1, m2, m3 = st.columns(3)
-                    with m1: display_colored_metric("Current Experience Match", sm)
-                    with m2: display_colored_metric("ATS Technical Visibility", sa)
-                    with m3: display_colored_metric("After-Optimization Match", st_score)
+                    with m1: display_colored_metric("Experience Match", sm)
+                    with m2: display_colored_metric("ATS Technical Score", sa)
+                    with m3: display_colored_metric("Potential Tailored Score", st_score)
                     
                     st.divider()
                     st.markdown(analysis_text)
                     
-                    # PDF Download
                     pdf_data = create_pdf(analysis_text)
                     if pdf_data:
-                        st.download_button("📥 Download Executive Strategy (PDF)", 
-                                           data=pdf_data, 
-                                           file_name=f"Strategy_{company}.pdf")
+                        st.download_button("📥 Download Full Audit (PDF)", data=pdf_data, file_name=f"Audit_{company}.pdf")
                                            
                 except Exception as e:
-                    st.error(f"Execution Error: {e}")
+                    st.error(f"Audit Error: {e}")
 
 with tab2:
-    st.header("Application Pipeline Tracker")
+    st.header("Strategic Application History")
     df = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
     
     if not df.empty:
         for date, group in df.groupby('date'):
             st.subheader(f"📅 {date}")
             for _, row in group.iterrows():
-                label = f"{row['company']} | {row['title']} | ATS: {row['ats_score']}%"
+                label = f"{row['company']} | {row['title']} | Score: {row['score_after']}%"
                 with st.expander(label):
                     st.markdown(row['analysis'])
     else:
-        st.info("No applications in pipeline.")
+        st.info("Your application pipeline is currently empty.")
