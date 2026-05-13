@@ -6,7 +6,6 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import unicodedata
-import time
 
 # --- Database Setup (v4) ---
 conn = sqlite3.connect('career_hub_v4.db', check_same_thread=False)
@@ -45,6 +44,7 @@ def create_pdf(text):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=10)
+        # Deep clean text for PDF compatibility
         clean_text = text.replace('*', '').replace('#', '').replace('•', '-')
         clean_text = unicodedata.normalize('NFKD', clean_text).encode('latin-1', 'ignore').decode('latin-1')
         pdf.multi_cell(0, 8, clean_text)
@@ -66,11 +66,11 @@ apply_executive_css()
 
 # API Configuration
 active_api_key = st.secrets.get("GEMINI_API_KEY")
-# SWAP: Reverting to the most stable Paid-Tier compatible model
-MODEL_ID = "gemini-1.5-flash-002" 
+# FIXED: Using the canonical model name
+MODEL_ID = "gemini-1.5-flash" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v4.7 | Quota-Stabilized | Production Tier")
+st.caption("v4.8 | Stable SDK Integration | Production Grade")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 Application History"])
 
@@ -87,10 +87,13 @@ with tab1:
         if not active_api_key or not uploaded_file or not job_desc:
             st.warning("All fields are required.")
         else:
-            with st.spinner(f"Architecting for {company} (Using Stable Engine)..."):
+            with st.spinner(f"Architecting for {company}..."):
                 try:
+                    # Parse PDF
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
+                    
+                    # Explicit client initialization
                     client = genai.Client(api_key=active_api_key)
 
                     prompt = f"""
@@ -102,14 +105,14 @@ with tab1:
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
 
-                    # Execute with stability handling
+                    # Execute main tailoring
                     response = client.models.generate_content(model=MODEL_ID, contents=prompt)
                     tailored_content = response.text.replace('*', '').replace('#', '')
 
-                    # Scoring
+                    # Execute separate scoring call
                     score_res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=f"Return only two integers separated by a comma (Match, ATS) for: {tailored_content}"
+                        contents=f"Return only two integers separated by a comma (Match Score, ATS Score) based on: {tailored_content}"
                     )
                     
                     try:
@@ -119,6 +122,7 @@ with tab1:
                     except:
                         sm, sa = 0, 0
 
+                    # Database logging
                     c.execute("INSERT INTO applications (date, company, title, status, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d"), company, title, "Applied", tailored_content, sm, sa))
                     conn.commit()
@@ -136,11 +140,7 @@ with tab1:
                         st.download_button("📥 Download PDF", data=pdf_data, file_name=f"Executive_Resume_{company}.pdf")
 
                 except Exception as e:
-                    if "429" in str(e):
-                        st.error("Quota exceeded on Experimental Model. Retrying with stable engine...")
-                        time.sleep(2)
-                    else:
-                        st.error(f"Error: {e}")
+                    st.error(f"Error: {e}")
 
 with tab2:
     st.header("Strategic Tracking System")
