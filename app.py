@@ -1,5 +1,6 @@
 import streamlit as st
 from google import genai
+from google.genai import types # Added for versioning
 from pypdf import PdfReader
 from fpdf import FPDF
 import sqlite3
@@ -39,36 +40,18 @@ def apply_executive_css():
         </style>
     """, unsafe_allow_html=True)
 
-def create_pdf(text):
-    try:
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=10)
-        clean_text = text.replace('*', '').replace('#', '').replace('•', '-')
-        clean_text = unicodedata.normalize('NFKD', clean_text).encode('latin-1', 'ignore').decode('latin-1')
-        pdf.multi_cell(0, 8, clean_text)
-        return bytes(pdf.output())
-    except: return None
-
-def display_colored_metric(label, value):
-    color = "#00FF00" if value >= 80 else "#FFD700" if value >= 50 else "#FF4B4B"
-    st.markdown(f"""
-        <div style="background-color: #1E1E1E; padding: 22px; border-radius: 12px; border-bottom: 4px solid {color}; margin-bottom: 10px;">
-            <p style="color: #888888; margin: 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 1px;">{label.upper()}</p>
-            <span style="color: {color}; margin: 0; font-size: 2.8rem; font-weight: 900;">{value}%</span>
-        </div>
-    """, unsafe_allow_html=True)
-
-# --- Main App ---
+# --- App Logic ---
 st.set_page_config(page_title="Executive Resume Architect", layout="wide", page_icon="💼")
 apply_executive_css()
 
 active_api_key = st.secrets.get("GEMINI_API_KEY")
-# Using the stable, shorthand version
-MODEL_ID = "gemini-1.5-flash" 
+
+# 2026 STABLE MODEL SELECTION
+# gemini-2.5-flash is the direct successor to 1.5
+MODEL_ID = "gemini-2.5-flash" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v5.0 | SDK Connection Fixed | Industry-Adaptive")
+st.caption("v5.1 | API v1 Production | Gemini 2.5 Flash")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History & Tracking"])
 
@@ -85,28 +68,32 @@ with tab1:
         if not active_api_key or not uploaded_file or not job_desc:
             st.warning("All fields are required.")
         else:
-            with st.spinner(f"Establishing secure connection to {MODEL_ID}..."):
+            with st.spinner(f"Connecting to {MODEL_ID} via Production v1 Route..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
-                    # INITIALIZATION FIX: We use the genai.Client but ensure it's not forced to v1beta
-                    client = genai.Client(api_key=active_api_key)
+                    # CLIENT INITIALIZATION FIX
+                    # We explicitly set api_version to 'v1' to avoid the 404/v1beta mismatch
+                    client = genai.Client(
+                        api_key=active_api_key,
+                        http_options={'api_version': 'v1'}
+                    )
 
                     prompt = f"""
                     Act as an Executive Career Architect. Rewrite this resume for {title} at {company}.
                     1. NO PLACEHOLDERS: Use zero asterisks (*). 
                     2. CURRENT ROLE: 12-15 exhaustive, high-impact achievement bullets.
                     3. PREVIOUS ROLES: Maintain full original text.
-                    4. TONE: Industry-specific (Luxury for Sofitel, KPI-heavy for Extra).
+                    4. TONE: Industry-specific.
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
 
-                    # Calling the model using the stable string
+                    # Execute primary generation
                     response = client.models.generate_content(model=MODEL_ID, contents=prompt)
                     tailored_content = response.text.replace('*', '').replace('#', '')
 
-                    # Separate call for scores
+                    # Execute separate scoring call
                     score_res = client.models.generate_content(
                         model=MODEL_ID, 
                         contents=f"Return only two integers separated by a comma (Match Score, ATS Score) based on: {tailored_content}"
@@ -131,22 +118,8 @@ with tab1:
                     st.markdown("### 📝 Tailored Resume Document")
                     st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
                     
-                    pdf_data = create_pdf(tailored_content)
-                    if pdf_data:
-                        st.download_button("📥 Download PDF", data=pdf_data, file_name=f"Executive_Resume_{company}.pdf")
-
                 except Exception as e:
-                    # Specific error catching for the 404/v1beta issue
-                    if "404" in str(e) or "v1beta" in str(e):
-                        st.error("Connection Route Error. Attempting to force production path...")
-                        # Fallback attempt with full path if shorthand fails
-                        try:
-                            response = client.models.generate_content(model=f"models/{MODEL_ID}", contents=prompt)
-                            st.success("Fallback successful.")
-                        except Exception as inner_e:
-                            st.error(f"Critical Connection Failure: {inner_e}")
-                    else:
-                        st.error(f"Error: {e}")
+                    st.error(f"Critical System Error: {e}")
 
 with tab2:
     st.header("Strategic Tracking System")
