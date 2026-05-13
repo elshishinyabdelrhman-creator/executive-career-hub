@@ -40,7 +40,6 @@ def apply_executive_css():
         </style>
     """, unsafe_allow_html=True)
 
-# RESTORED MISSING FUNCTION
 def display_colored_metric(label, value):
     color = "#00FF00" if value >= 80 else "#FFD700" if value >= 50 else "#FF4B4B"
     st.markdown(f"""
@@ -58,7 +57,7 @@ active_api_key = st.secrets.get("GEMINI_API_KEY")
 MODEL_ID = "gemini-2.5-flash" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v5.2 | Full Functionality Restored | Gemini 2.5 Flash")
+st.caption("v5.3 | Forced 4-Part Structure | High-Capacity Output")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History & Tracking"])
 
@@ -75,29 +74,57 @@ with tab1:
         if not active_api_key or not uploaded_file or not job_desc:
             st.warning("All fields are required.")
         else:
-            with st.spinner(f"Connecting to {MODEL_ID} via Production v1 Route..."):
+            with st.spinner(f"Architecting for {company}..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
-                    # Force v1 API version
                     client = genai.Client(
                         api_key=active_api_key,
                         http_options={'api_version': 'v1'}
                     )
 
+                    # --- UPDATED: Forced 4-Part Structure Prompt ---
                     prompt = f"""
-                    Act as an Executive Career Architect. Rewrite this resume for {title} at {company}.
-                    1. NO PLACEHOLDERS: Use zero asterisks (*). 
-                    2. CURRENT ROLE: 12-15 exhaustive, high-impact achievement bullets.
-                    3. PREVIOUS ROLES: Maintain full original text.
-                    4. TONE: Industry-specific.
-                    RESUME: {resume_text} \n JD: {job_desc}
+                    Act as a C-Level Executive Resume Ghostwriter. 
+                    Rewrite the resume for {title} at {company} using this EXACT 4-part structure. 
+                    DO NOT skip any section.
+
+                    1. EXECUTIVE SUMMARY:
+                    - 6 sophisticated sentences blending {company}'s industry tone with your 10+ years of expertise.
+
+                    2. PROFESSIONAL EXPERIENCE (CURRENT ROLE):
+                    - Rewrite the Dabouq/Oxygen Saudi experience with EXACTLY 15 exhaustive, metric-heavy bullets.
+                    - Focus on Unit Economics, P&L Ownership, and Brand Stewardship.
+
+                    3. PROFESSIONAL EXPERIENCE (HISTORY):
+                    - Maintain all previous roles (before 2024) in their original form. DO NOT truncate or shorten.
+
+                    4. STRATEGIC CORE COMPETENCIES (ATS OPTIMIZED):
+                    - Create a dedicated 'Skills & Tools' section.
+                    - Inject 20+ technical keywords from the Job Description below.
+                    - Categorize into: 'Leadership', 'Digital Commerce', and 'Operational Excellence'.
+
+                    STRICT RULES:
+                    - NO PLACEHOLDERS: Use zero asterisks (*). 
+                    - FULL OUTPUT: You must provide all 4 sections. No truncation.
+
+                    RESUME: {resume_text}
+                    JD: {job_desc}
                     """
 
-                    response = client.models.generate_content(model=MODEL_ID, contents=prompt)
+                    # Generation with High-Capacity Configuration
+                    response = client.models.generate_content(
+                        model=MODEL_ID, 
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            max_output_tokens=5000, # Increased to prevent cut-off
+                            temperature=0.65
+                        )
+                    )
                     tailored_content = response.text.replace('*', '').replace('#', '')
 
+                    # Scoring call
                     score_res = client.models.generate_content(
                         model=MODEL_ID, 
                         contents=f"Return only two integers separated by a comma (Match Score, ATS Score) based on: {tailored_content}"
