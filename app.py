@@ -1,6 +1,6 @@
 import streamlit as st
 from google import genai
-from google.genai import types # Added for versioning
+from google.genai import types 
 from pypdf import PdfReader
 from fpdf import FPDF
 import sqlite3
@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime
 import unicodedata
 
-# --- Database Setup (v4) ---
+# --- Database Setup ---
 conn = sqlite3.connect('career_hub_v4.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS applications 
@@ -40,18 +40,25 @@ def apply_executive_css():
         </style>
     """, unsafe_allow_html=True)
 
+# RESTORED MISSING FUNCTION
+def display_colored_metric(label, value):
+    color = "#00FF00" if value >= 80 else "#FFD700" if value >= 50 else "#FF4B4B"
+    st.markdown(f"""
+        <div style="background-color: #1E1E1E; padding: 22px; border-radius: 12px; border-bottom: 4px solid {color}; margin-bottom: 10px;">
+            <p style="color: #888888; margin: 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 1px;">{label.upper()}</p>
+            <span style="color: {color}; margin: 0; font-size: 2.8rem; font-weight: 900;">{value}%</span>
+        </div>
+    """, unsafe_allow_html=True)
+
 # --- App Logic ---
 st.set_page_config(page_title="Executive Resume Architect", layout="wide", page_icon="💼")
 apply_executive_css()
 
 active_api_key = st.secrets.get("GEMINI_API_KEY")
-
-# 2026 STABLE MODEL SELECTION
-# gemini-2.5-flash is the direct successor to 1.5
 MODEL_ID = "gemini-2.5-flash" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v5.1 | API v1 Production | Gemini 2.5 Flash")
+st.caption("v5.2 | Full Functionality Restored | Gemini 2.5 Flash")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History & Tracking"])
 
@@ -73,8 +80,7 @@ with tab1:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
-                    # CLIENT INITIALIZATION FIX
-                    # We explicitly set api_version to 'v1' to avoid the 404/v1beta mismatch
+                    # Force v1 API version
                     client = genai.Client(
                         api_key=active_api_key,
                         http_options={'api_version': 'v1'}
@@ -89,11 +95,9 @@ with tab1:
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
 
-                    # Execute primary generation
                     response = client.models.generate_content(model=MODEL_ID, contents=prompt)
                     tailored_content = response.text.replace('*', '').replace('#', '')
 
-                    # Execute separate scoring call
                     score_res = client.models.generate_content(
                         model=MODEL_ID, 
                         contents=f"Return only two integers separated by a comma (Match Score, ATS Score) based on: {tailored_content}"
