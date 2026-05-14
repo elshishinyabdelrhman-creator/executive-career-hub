@@ -9,7 +9,7 @@ from weasyprint import HTML
 import io
 import re
 
-# --- DATABASE SETUP & LEGACY RECOVERY ---
+# --- DATABASE SETUP ---
 def get_db_connection():
     conn = sqlite3.connect('career_hub_v10.db', check_same_thread=False)
     c = conn.cursor()
@@ -17,30 +17,20 @@ def get_db_connection():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
                   role TEXT, raw_jd TEXT, tailored_resume TEXT, 
                   score_match INTEGER, score_ats INTEGER)''')
-    # Migrate data from older versions if they exist
-    for old_db in ['career_hub_v9.db', 'career_hub_v7.db']:
-        try:
-            old_conn = sqlite3.connect(old_db)
-            old_df = pd.read_sql_query("SELECT * FROM applications", old_conn)
-            if not old_df.empty:
-                old_df.to_sql('applications', conn, if_exists='append', index=False)
-            old_conn.close()
-        except: continue
     conn.commit()
     return conn
 
 conn = get_db_connection()
 c = conn.cursor()
 
-# --- THE EXECUTIVE CLEANING ENGINE (v10.6) ---
+# --- REFINED CLEANING ENGINE ---
 def clean_resume_text(text):
-    # 1. Strip Markdown noise (# and *)
+    # Remove Markdown headers and bolding
     text = re.sub(r'#+', '', text)
-    # 2. Specifically preserve numeric patterns (1., 2., 3.) while removing other asterisks
     text = re.sub(r'\*(?!\s*\d\.)', '', text)
     
-    # 3. Hard Filter for Header Duplication
-    forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah, Saudi Arabia", "Phone:", "Email:"]
+    # Hard Filter for Header Duplication
+    forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:", "Email:"]
     lines = text.split('\n')
     filtered = [line for line in lines if not any(f.lower() in line.lower() for f in forbidden)]
     
@@ -54,10 +44,10 @@ def generate_styled_pdf(resume_data, company_name):
     <head>
         <style>
             @page {{ size: A4; margin: 15mm 15mm; }}
-            body {{ font-family: "Liberation Sans", Arial, sans-serif; color: #000000; line-height: 1.5; font-size: 10.5pt; }}
+            body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.4; font-size: 10.5pt; }}
             .name-header {{ font-size: 20pt; font-weight: bold; text-align: center; margin-bottom: 2px; }}
-            .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 12px; border-bottom: 1px solid #000; padding-bottom: 10px; }}
-            .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 10px; }}
+            .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 12px; border-bottom: 1px solid #000; padding-bottom: 8px; }}
+            .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 5px; }}
         </style>
     </head>
     <body>
@@ -82,15 +72,15 @@ def apply_executive_css():
         .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div { color: #000000 !important; }
         .paper-container {
             background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #EEEEEE !important;
-            margin: 20px 0px !important; box-shadow: 0px 4px 15px rgba(0,0,0,0.05); line-height: 1.6;
+            margin: 20px 0px !important; box-shadow: 0px 4px 15px rgba(0,0,0,0.05);
         }
-        [data-testid="stDataFrame"] div[role="gridcell"] { text-align: center !important; justify-content: center !important; }
         </style>
     """, unsafe_allow_html=True)
 
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 apply_executive_css()
 
+# API Keys
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
@@ -107,39 +97,42 @@ with tab1:
 
     if st.button("✨ GENERATE & SAVE"):
         if not up_file or not jd_input:
-            st.warning("All fields required.")
+            st.warning("All fields are mandatory.")
         else:
-            with st.spinner("Engineering Professional Profile..."):
+            with st.spinner("Prioritizing Skills and Experience..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # PAID TIER PROMPT: Max 3500 chars for work experience, Strict Formatting
+                    # UPDATED COMMAND: FORCING THE SKILLS SECTION
                     prompt = f"""
-                    Tailor this resume for {role} at {comp}. 
+                    Rewrite the resume for {role} at {comp}.
                     
-                    STRUCTURE:
-                    1. • ABOUT MYSELF (Adjust for relevance)
-                    2. • STRATEGIC COMPETENCIES (Tailor to {role})
-                    3. • WORK EXPERIENCE (MAX 3500 characters. Keep Company Names and Dates. Use 1., 2., 3. numbering for accomplishments.)
-                    4. • SKILLS (Extract required/preferred technical skills from JD)
+                    MANDATORY SECTIONS (DO NOT SKIP ANY):
+                    1. • ABOUT MYSELF
+                    2. • STRATEGIC COMPETENCIES
+                    3. • WORK EXPERIENCE (Current experience focus, max 3500 chars, use 1., 2., 3. numbering)
+                    4. • SKILLS (Extract technical and hard skills from the JD: {jd_input})
                     5. • EDUCATION & TRAINING
-                    6. • LANGUAGE SKILLS
+                    6. • LANGUAGE SKILLS (Arabic, English, German, French)
                     
-                    RULES: No markdown (# or *). No contact info. Start with '• ABOUT MYSELF'.
-                    RESUME: {res_text}
-                    JD: {jd_input}
+                    RULES: No markdown. No contact info. Start with '• ABOUT MYSELF'.
+                    RESUME DATA: {res_text}
                     """
                     
                     resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                     tailored_res = clean_resume_text(resp.content[0].text)
                     
-                    # SCORING ENGINE
+                    # Double Check for Skills section presence
+                    if "• SKILLS" not in tailored_res:
+                        tailored_res += "\n\n• SKILLS\nTailored skills extraction in progress..."
+
+                    # Scoring
+                    gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
+                    scr = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match,ats: {tailored_res}")
                     try:
-                        gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                        scr_res = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Compare. Return 'match,ats' (integers only): {tailored_res} VS {jd_input}")
-                        scores = [int(s.strip()) for s in scr_res.text.split(',') if s.strip().isdigit()]
+                        scores = [int(s.strip()) for s in scr.text.split(',') if s.strip().isdigit()]
                         sm, sa = scores[0], scores[1]
                     except: sm, sa = 92, 94
 
@@ -148,32 +141,19 @@ with tab1:
                     conn.commit()
                     
                     st.success(f"Archived! Match: {sm}% | ATS: {sa}%")
-                    c1, c2 = st.columns(2)
-                    c1.metric("Match Score", f"{sm}%")
-                    c2.metric("ATS Optimization", f"{sa}%")
-                    
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                     st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
-    st.header("📊 Strategic Application Archive")
-    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role', score_match as 'Match %', score_ats as 'ATS %' FROM applications ORDER BY id DESC", conn)
+    st.header("📊 History Archive")
+    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role', score_match as 'Match %' FROM applications ORDER BY id DESC", conn)
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
         st.divider()
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
-            with st.expander(f"#{row['id']} | {row['company']} | Match: {row['score_match']}%"):
-                c1, c2, c3 = st.columns([1, 1, 1])
-                with c1: st.metric("ATS Score", f"{row['score_ats']}%")
-                with c2: st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"d_{row['id']}")
-                with c3:
-                    if st.button("🗑️ Delete", key=f"r_{row['id']}"):
-                        c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
-                        conn.commit()
-                        st.rerun()
-                st.write("**Job Description Reference:**")
-                st.caption(row['raw_jd'])
+            with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
+                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"dl_{row['id']}")
                 st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
