@@ -11,7 +11,7 @@ import re
 
 # --- DATABASE SETUP ---
 def get_db_connection():
-    conn = sqlite3.connect('career_hub_v12_1.db', check_same_thread=False)
+    conn = sqlite3.connect('career_hub_v12_final.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS applications 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
@@ -23,13 +23,17 @@ def get_db_connection():
 conn = get_db_connection()
 c = conn.cursor()
 
-# --- v12.1 CLEANING ENGINE (ZERO-STRIP) ---
+# --- v12.2 ZERO-STRIP ENGINE (NO TOUCHING NUMBERS OR DASHES) ---
 def clean_resume_text(text):
-    # Protects all characters except AI markdown hashtags
+    # ONLY remove the AI markdown headers (###)
+    # LEAVE ALL NUMBERS, DASHES, AND ASTERISKS ALONE.
     text = re.sub(r'#+', '', text)
+    
+    # Filter out duplicate personal info headers
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:", "Email:"]
     lines = text.split('\n')
     filtered = [line for line in lines if not any(f.lower() in line.lower() for f in forbidden)]
+    
     return "\n".join(filtered).strip()
 
 def generate_styled_pdf(resume_data, company_name):
@@ -40,9 +44,9 @@ def generate_styled_pdf(resume_data, company_name):
     <head>
         <style>
             @page {{ size: A4; margin: 15mm 15mm; }}
-            body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.4; font-size: 10.5pt; }}
+            body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.45; font-size: 10.5pt; }}
             .name-header {{ font-size: 20pt; font-weight: bold; text-align: center; margin-bottom: 2px; }}
-            .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 12px; border-bottom: 1.2px solid #000; padding-bottom: 10px; }}
+            .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 12px; border-bottom: 1.5px solid #000; padding-bottom: 10px; }}
             .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 10px; }}
         </style>
     </head>
@@ -61,7 +65,7 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-st.set_page_config(page_title="Executive Career Hub v12.1", layout="wide")
+st.set_page_config(page_title="Executive Career Hub v12.2", layout="wide")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
@@ -81,46 +85,42 @@ with tab1:
         if not up_file or not jd_input:
             st.warning("All inputs are required.")
         else:
-            with st.spinner("Locking All Job Positions..."):
+            with st.spinner("Locking All Job Dates..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # V12.1 PROMPT: FORCED INCLUSION OF ALL POSITIONS
+                    # V12.2 HARD PROMPT: FORCE-LOCK DATES FOR EVERY POSITION
                     prompt = f"""
                     Rewrite the resume for {role} at {comp}. 
 
-                    CRITICAL: YOU MUST INCLUDE ALL 4 POSITIONS IN THE WORK EXPERIENCE SECTION.
+                    CRITICAL INSTRUCTION: EVERY work experience entry MUST have its Date Range.
                     
-                    POSITION 1 (TAILOR THIS):
-                    - DABOUQ TRADING CO | 2022 - PRESENT
-                    - Role: E-commerce Performance Marketing Manager
-                    - Requirements: 10-12 detailed points, 1. 2. 3. numbering, Max 3500 chars.
+                    POSITION 1: DABOUQ TRADING CO | 2022 - PRESENT
+                    - Rewrite with 10-12 points relevant to JD: {jd_input}. 
+                    - Use 1., 2., 3. numbering. Max 3500 characters.
 
-                    POSITION 2 (DO NOT EDIT):
-                    - SHIP HERO | 2021 - 2022
-                    - Copy all bullet points exactly from the source resume.
+                    POSITION 2: SHIP HERO | 2021 - 2022
+                    - Copy header, dates, and bullets exactly. DO NOT OMIT DATES.
 
-                    POSITION 3 (DO NOT EDIT):
-                    - SPELENZO | 2013 - 2021
-                    - Copy all bullet points exactly from the source resume.
+                    POSITION 3: SPELENZO | 2013 - 2021
+                    - Copy header, dates, and bullets exactly. DO NOT OMIT DATES.
 
-                    POSITION 4 (DO NOT EDIT):
-                    - CITI BANK | 2006 - 2013
-                    - Copy all bullet points exactly from the source resume.
+                    POSITION 4: CITI BANK | 2006 - 2013
+                    - Copy header, dates, and bullets exactly. DO NOT OMIT DATES.
 
-                    MANDATORY SEQUENCE:
+                    SECTIONS ORDER:
                     • ABOUT MYSELF > • STRATEGIC COMPETENCIES > • WORK EXPERIENCE (ALL 4 ABOVE) > • SKILLS > • EDUCATION > • LANGUAGES.
 
-                    No markdown. No contact info. Start with '• ABOUT MYSELF'.
+                    Rules: No markdown. No contact info. Start with '• ABOUT MYSELF'.
                     RESUME SOURCE: {res_text}
                     """
                     
                     resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                     tailored_res = resp.content[0].text
                     
-                    # Quota-Safe Scoring
+                    # Emergency bypass for scores
                     sm, sa = 0, 0
                     try:
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
