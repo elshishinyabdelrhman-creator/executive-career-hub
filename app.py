@@ -1,12 +1,11 @@
 import streamlit as st
-import anthropic  # The engine you actually have credit for
+import anthropic 
 from google import genai
 from pypdf import PdfReader
 import sqlite3
-import pandas as pd
 from datetime import datetime
 
-# --- Database Setup (v6) ---
+# --- Database Setup ---
 conn = sqlite3.connect('career_hub_v6.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS applications 
@@ -39,35 +38,36 @@ apply_executive_css()
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
+# 2026 STABLE MODEL IDs
+# Use 'latest' to avoid the 404 versioning errors
+CLAUDE_MODEL = "claude-3-7-sonnet-latest" 
+GEMINI_MODEL = "gemini-1.5-flash"
+
 st.title("🚀 Strategic Resume Architect")
-st.caption("v6.2 | Claude 3.5 Sonnet (Primary Engine) | Gemini Dormant")
+st.caption("v6.3 | Claude 3.7 Sonnet (Writing) | Gemini (Scoring)")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History"])
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
     with col_a:
-        company = st.text_input("Target Company", placeholder="e.g. Extra, Sofitel")
+        company = st.text_input("Target Company", placeholder="e.g. Sofitel, Extra")
         title = st.text_input("Target Role", placeholder="e.g. General Manager")
         job_desc = st.text_area("Paste Job Description", height=300)
     with col_b:
         uploaded_file = st.file_uploader("Upload Master Resume", type="pdf")
-        st.success("Connected to Claude (Paid Credits Found)")
+        st.success("Claude Engine Ready (Paid Credits)")
 
     if st.button("✨ ARCHITECT COMPLETE RESUME"):
         if not uploaded_file or not job_desc:
-            st.warning("Please upload a resume and paste a Job Description.")
-        elif not claude_key:
-            st.error("Claude API Key not found in Streamlit Secrets!")
+            st.warning("Please upload a resume and job description.")
         else:
             with st.spinner("Claude is architecting your executive resume..."):
                 try:
-                    # 1. Parse PDF
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
-                    # 2. Architect with Claude (Since you have credits here)
-                    # Using the most stable Claude 3.5 Sonnet model ID
+                    # 1. ARCHITECT WITH CLAUDE (Using your credits)
                     claude_client = anthropic.Anthropic(api_key=claude_key)
                     
                     prompt = f"""
@@ -79,29 +79,41 @@ with tab1:
                     """
 
                     resp = claude_client.messages.create(
-                        model="claude-3-5-sonnet-20240620",
+                        model=CLAUDE_MODEL,
                         max_tokens=4000,
                         messages=[{"role": "user", "content": prompt}]
                     )
-                    tailored_content = resp.content[0].text
-                    tailored_content = tailored_content.replace('*', '')
+                    tailored_content = resp.content[0].text.replace('*', '')
 
-                    # 3. Log to Database
+                    # 2. SCORE WITH GEMINI (Free Tier)
+                    sm, sa = 0, 0
+                    try:
+                        gem_client = genai.Client(api_key=gemini_key)
+                        score_res = gem_client.models.generate_content(
+                            model=GEMINI_MODEL,
+                            contents=f"Return ONLY two numbers separated by a comma (Match, ATS): {tailored_content}"
+                        )
+                        nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
+                        sm, sa = nums[0], nums[1]
+                    except:
+                        pass # Silently fail scoring to avoid blocking the main result
+
+                    # 3. SAVE & DISPLAY
                     c.execute("INSERT INTO applications (date, company, title, engine, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Claude 3.5", tailored_content, 0, 0))
+                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Claude 3.7", tailored_content, sm, sa))
                     conn.commit()
 
-                    # 4. Display Result
                     st.markdown("### 📝 Tailored Executive Document")
                     st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
                     
                 except Exception as e:
-                    st.error(f"Claude Engine Error: {e}")
+                    st.error(f"Engine Error: {e}")
 
 with tab2:
+    import pandas as pd
     st.header("Strategic Tracking System")
     try:
-        history_df = pd.read_sql_query("SELECT date, company, title, engine FROM applications ORDER BY date DESC", conn)
+        history_df = pd.read_sql_query("SELECT date, company, title, engine, score_match, score_ats FROM applications ORDER BY date DESC", conn)
         st.dataframe(history_df, use_container_width=True)
     except:
         st.info("No logs yet.")
