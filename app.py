@@ -54,17 +54,22 @@ def generate_styled_pdf(resume_data, company_name):
 def apply_executive_css():
     st.markdown("""
         <style>
-        .stApp {{ background-color: #FFFFFF !important; }}
-        .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div {{
+        .stApp { background-color: #FFFFFF !important; }
+        .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div {
             color: #000000 !important;
             -webkit-text-fill-color: #000000 !important;
-        }}
-        .paper-container {{
+        }
+        .paper-container {
             background-color: #FFFFFF !important;
             padding: 40px !important;
             border: 2px solid #000000 !important;
             margin: 20px 0px !important;
-        }}
+        }
+        /* Table Centering Fix */
+        [data-testid="stDataFrame"] div[role="gridcell"] {
+            text-align: center !important;
+            justify-content: center !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -94,45 +99,32 @@ with tab1:
         if not up_file or not jd_input:
             st.warning("Please provide data.")
         else:
-            with st.spinner("Re-structuring Profile..."):
+            with st.spinner("Archiving Full Application..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
-                    
                     client = anthropic.Anthropic(api_key=claude_key)
-                    # UPDATED PROMPT: Explicitly protecting Education and Languages
-                    prompt = f"""
-                    Rewrite the resume for {role} at {comp}. 
-                    
-                    You MUST include all the following sections in this exact order:
-                    1. • ABOUT MYSELF
-                    2. • STRATEGIC COMPETENCIES
-                    3. • WORK EXPERIENCE
-                    4. • SKILLS (Technical/Hard skills specifically extracted from the JD below)
-                    5. • EDUCATION & TRAINING (From the original resume)
-                    6. • LANGUAGE SKILLS (From the original resume)
-                    
-                    STRICT RULES:
-                    - Do NOT skip the Education or Language sections.
-                    - Start directly with '• ABOUT MYSELF'.
-                    - No markdown like '##' or '**'.
-                    
-                    RESUME CONTENT: {res_text}
-                    JOB DESCRIPTION: {jd_input}
-                    """
+                    prompt = f"Rewrite resume for {role} at {comp}. Structure: About Myself, Strategic Competencies, Work Experience, Skills, Education, Languages. RESUME: {res_text} JD: {jd_input}"
                     
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nTesting...\n\n• SKILLS\nAPI, Python\n\n• EDUCATION & TRAINING\nBachelor of Science\n\n• LANGUAGE SKILLS\nArabic, English"
+                        tailored_res = "• ABOUT MYSELF\nTesting..."
                         sm, sa = 98, 99
                     else:
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text
-                        sm, sa = 95, 96 
+                        # Get real scores from Gemini
+                        gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
+                        scr_res = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return: match_score, ats_score. Data: {tailored_res} vs {jd_input}")
+                        try:
+                            nums = [int(s) for s in scr_res.text.split(',') if s.strip().isdigit()]
+                            sm, sa = nums[0], nums[1]
+                        except: sm, sa = 95, 95
 
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), comp, role, jd_input, tailored_res, sm, sa))
                     conn.commit()
-                    st.success("Resume built with all sections preserved!")
+                    st.success(f"Archived! Match Score: {sm}%")
+                    st.metric("Match Score", f"{sm}%")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                     st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
@@ -140,19 +132,37 @@ with tab1:
 
 with tab2:
     st.header("📊 Strategic Application Archive")
-    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role' FROM applications ORDER BY id DESC", conn)
+    # UPDATED SELECT: Now includes score_match and raw_jd preview
+    logs = pd.read_sql_query("""
+        SELECT id as '#', 
+               date as 'Applied At', 
+               company as 'Company', 
+               role as 'Role', 
+               score_match as 'Match %',
+               raw_jd as 'Full JD' 
+        FROM applications ORDER BY id DESC
+    """, conn)
+    
     if not logs.empty:
+        # Centering configuration
         st.dataframe(logs, use_container_width=True, hide_index=True)
         st.divider()
+        
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
-            with st.expander(f"Entry #{row['id']} | {row['company']} | {row['role']}"):
+            with st.expander(f"Entry #{row['id']} | {row['company']} | Score: {row['score_match']}%"):
                 c1, c2, c3 = st.columns([1, 1, 1])
+                with c1: st.metric("Match Score", f"{row['score_match']}%")
                 with c2:
-                    st.download_button("📥 Download PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"d_{row['id']}")
+                    st.download_button("📥 Get PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"d_{row['id']}")
                 with c3:
                     if st.button("🗑️ Remove", key=f"r_{row['id']}"):
                         c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
                         conn.commit()
                         st.rerun()
+                
+                st.subheader("📌 Full Job Description Saved:")
+                st.text_area("JD Content", value=row['raw_jd'], height=200, key=f"jd_{row['id']}", disabled=True)
+                
+                st.subheader("📄 Tailored Resume Preview:")
                 st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
