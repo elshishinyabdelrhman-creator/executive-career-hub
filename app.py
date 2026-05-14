@@ -32,7 +32,7 @@ def generate_styled_pdf(resume_data, company_name):
             @page {{ size: A4; margin: 15mm 15mm; }}
             body {{ 
                 font-family: "Liberation Sans", Arial, sans-serif; 
-                color: #000000; 
+                color: #000000 !important; 
                 line-height: 1.4; 
                 font-size: 10pt; 
             }}
@@ -71,42 +71,43 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI Styling (Fixes the White-on-White visibility issue) ---
+# --- UI Styling (ULTRA AGGRESSIVE FIX) ---
 def apply_executive_css():
     st.markdown("""
         <style>
-        /* Main background remains dark for the executive look */
-        .main { background-color: #0E1117; }
+        /* Main background remains dark */
+        .main { background-color: #0E1117 !important; }
         
-        /* The resume display block is now a paper-white background with black text */
+        /* The resume display block - High Contrast White Background */
         .resume-block {
             background-color: #FFFFFF !important; 
-            border: 1px solid #DDDDDD;
-            padding: 40px; 
-            border-radius: 5px; 
-            color: #000000 !important;
-            line-height: 1.6; 
-            white-space: pre-wrap; 
-            font-size: 1rem;
-            font-family: 'Arial', sans-serif;
-            box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+            border: 5px solid #444444 !important; /* Thick border to define the area */
+            padding: 40px !important; 
+            border-radius: 10px !important; 
+            color: #000000 !important; /* FORCED BLACK TEXT */
+            line-height: 1.6 !important; 
+            white-space: pre-wrap !important; 
+            font-size: 1.1rem !important;
+            font-family: 'Arial', sans-serif !important;
+            margin-top: 20px !important;
         }
         
-        /* Ensures all text inside the white block is black */
+        /* Force every single child element inside the block to be black */
         .resume-block * {
             color: #000000 !important;
+            -webkit-text-fill-color: #000000 !important; /* Extra fix for some browsers */
         }
 
         /* Metric Styling */
         [data-testid="stMetricValue"] { color: #00FF00 !important; }
         
-        /* General text (Sidebar/Titles) remains white for contrast */
+        /* Sidebar/Labels remain white */
         .stMarkdown, label, p, h1, h2, h3 { color: #FFFFFF; }
         
-        /* Style for the Remove button */
+        /* Remove button */
         .stButton>button[kind="secondary"] {
-            color: #FF4B4B;
-            border-color: #FF4B4B;
+            color: #FF4B4B !important;
+            border-color: #FF4B4B !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -141,18 +142,18 @@ with tab1:
             with st.spinner("Processing..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\\nSample content for testing visibility..."
+                        tailored_res = "• ABOUT MYSELF\nTEST CONTENT: This text must be black."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
                         resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                         client = anthropic.Anthropic(api_key=claude_key)
-                        prompt = f"Rewrite resume for {title} at {company}. No markdown like ##. Start with • ABOUT MYSELF. RESUME: {resume_text} JD: {adj_jd}"
+                        prompt = f"Rewrite resume for {title} at {company}. No markdown. Start with • ABOUT MYSELF. RESUME: {resume_text} JD: {adj_jd}"
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text
                         
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                        score_res = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return only: match,ats. Data: {tailored_res} vs {adj_jd}")
+                        score_res = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match,ats: {tailored_res} vs {adj_jd}")
                         try:
                             nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
                             sm, sa = nums[0], nums[1]
@@ -162,7 +163,7 @@ with tab1:
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), company, title, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    st.success("Success!")
+                    st.success("Generation Successful!")
                     sc1, sc2 = st.columns(2)
                     sc1.metric("Matching Score", f"{sm}%")
                     sc2.metric("ATS Optimization", f"{sa}%")
