@@ -16,17 +16,6 @@ def migrate_data():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
                   role TEXT, raw_jd TEXT, tailored_resume TEXT, 
                   score_match INTEGER, score_ats INTEGER)''')
-    try:
-        old_conn = sqlite3.connect('career_hub_v7.db', check_same_thread=False)
-        old_logs = pd.read_sql_query("SELECT * FROM applications", old_conn)
-        check_empty = new_c.execute("SELECT count(*) FROM applications").fetchone()[0]
-        if check_empty == 0 and not old_logs.empty:
-            for _, row in old_logs.iterrows():
-                new_c.execute('''INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) 
-                                 VALUES (?, ?, ?, ?, ?, ?, ?)''', 
-                              (row['date'], row['company'], row['title'], row['raw_jd'], row['tailored_resume'], row['score_match'], row['score_ats']))
-            new_conn.commit()
-    except Exception: pass
     return new_conn
 
 conn = migrate_data()
@@ -62,7 +51,6 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI STYLING ---
 def apply_executive_css():
     st.markdown("""
         <style>
@@ -83,6 +71,7 @@ def apply_executive_css():
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 apply_executive_css()
 
+# API Keys
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
@@ -91,7 +80,7 @@ with st.sidebar:
     is_test_mode = st.checkbox("🛠️ Enable Test Mode", value=False)
 
 st.title("🚀 Executive Career Hub")
-tab1, tab2 = st.tabs(["🚀 Architect", "📊 Full History Table"])
+tab1, tab2 = st.tabs(["🚀 Architect", "📊 History Archive"])
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
@@ -108,14 +97,33 @@ with tab1:
         else:
             with st.spinner("Processing..."):
                 try:
+                    reader = PdfReader(up_file)
+                    res_text = "".join([p.extract_text() or "" for p in reader.pages])
+                    
+                    client = anthropic.Anthropic(api_key=claude_key)
+                    # UPDATED PROMPT TO INCLUDE DYNAMIC SKILLS SECTION
+                    prompt = f"""
+                    Rewrite the resume for {role} at {comp}.
+                    
+                    STRUCTURE:
+                    1. • ABOUT MYSELF
+                    2. • STRATEGIC COMPETENCIES (Focus on leadership and strategy)
+                    3. • WORK EXPERIENCE (Maintain 1., 2., 3. numbering)
+                    4. • SKILLS (Extract technical tools, software, and specific hard skills from the JD below)
+                    
+                    STRICT RULES:
+                    - Start directly with '• ABOUT MYSELF'.
+                    - No markdown like '##' or '**'.
+                    - Ensure the SKILLS section is a comma-separated list or brief bullets.
+                    
+                    RESUME: {res_text}
+                    JD: {jd}
+                    """
+                    
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nSample content..."
+                        tailored_res = "• ABOUT MYSELF\nTesting...\n\n• WORK EXPERIENCE\n1. Built app...\n\n• SKILLS\nPython, Streamlit, Anthropic API, SQL"
                         sm, sa = 98, 99
                     else:
-                        reader = PdfReader(up_file)
-                        res_text = "".join([p.extract_text() or "" for p in reader.pages])
-                        client = anthropic.Anthropic(api_key=claude_key)
-                        prompt = f"Rewrite resume for {role} at {comp}. Start with • ABOUT MYSELF. RESUME: {res_text} JD: {jd}"
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text
                         sm, sa = 95, 96 
@@ -123,8 +131,9 @@ with tab1:
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), comp, role, jd, tailored_res, sm, sa))
                     conn.commit()
-                    st.success("Saved to Archive!")
+                    st.success("Success! Skills Section added.")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
+                    st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
@@ -132,41 +141,15 @@ with tab2:
     st.header("📊 Strategic Application Archive")
     logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role' FROM applications ORDER BY id DESC", conn)
     
-    if logs.empty:
-        st.info("Archive is empty.")
-    else:
-        # --- THE FIX: COLUMN CONFIG FOR CENTER ALIGNMENT ---
-        st.dataframe(
-            logs, 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "#": st.column_config.TextColumn("#", width="small"),
-                "Applied At": st.column_config.TextColumn("Applied At", width="medium"),
-                "Company": st.column_config.TextColumn("Company", width="medium"),
-                "Role": st.column_config.TextColumn("Role", width="large")
-            }
-        )
-        
-        # We use st.markdown with a scoped CSS hack to force table alignment specifically in this tab
-        st.markdown("""
-            <style>
-                div[data-testid="stDataFrame"] div[role="gridcell"] {
-                    text-align: center !important;
-                    justify-content: center !important;
-                }
-            </style>
-        """, unsafe_allow_html=True)
-        
+    if not logs.empty:
+        st.dataframe(logs, use_container_width=True, hide_index=True)
         st.divider()
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
             with st.expander(f"Entry #{row['id']} | {row['company']} | {row['role']}"):
                 c1, c2, c3 = st.columns([1, 1, 1])
-                with c1: st.write(f"**Date:** {row['date']}")
                 with c2:
-                    pdf_h = generate_styled_pdf(row["tailored_resume"], row['company'])
-                    st.download_button("📥 PDF", pdf_h, f"{row['company']}.pdf", key=f"d_{row['id']}")
+                    st.download_button("📥 Download PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"d_{row['id']}")
                 with c3:
                     if st.button("🗑️ Remove", key=f"r_{row['id']}"):
                         c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
