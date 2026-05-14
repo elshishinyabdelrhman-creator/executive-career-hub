@@ -10,7 +10,7 @@ import re
 
 # --- DATABASE SETUP ---
 def get_db_connection():
-    conn = sqlite3.connect('career_hub_stable.db', check_same_thread=False)
+    conn = sqlite3.connect('career_hub_stable_v3.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS applications 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
@@ -21,9 +21,9 @@ def get_db_connection():
 conn = get_db_connection()
 c = conn.cursor()
 
-# --- CLEANING ENGINE (PROTECTS DATES & TITLES) ---
+# --- v12.8 CLEANING ENGINE (ZERO-STRIP) ---
 def clean_resume_text(text):
-    # Strip ONLY markdown headers. PROTECT ALL NUMBERS AND DATES.
+    # Only remove AI hashtags. Protect all numbers, dates, and dashes.
     text = re.sub(r'#+', '', text)
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:"]
     lines = text.split('\n')
@@ -38,7 +38,7 @@ def generate_styled_pdf(resume_data):
     <head>
         <style>
             @page {{ size: A4; margin: 15mm 15mm; }}
-            body {{ font-family: "Arial", sans-serif; color: #000; line-height: 1.5; font-size: 10.5pt; }}
+            body {{ font-family: "Arial", sans-serif; color: #000; line-height: 1.45; font-size: 10.5pt; }}
             .header {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }}
             .content {{ white-space: pre-wrap; text-align: justify; }}
         </style>
@@ -57,7 +57,7 @@ def generate_styled_pdf(resume_data):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-st.set_page_config(page_title="Executive Career Hub v12.7", layout="wide")
+st.set_page_config(page_title="Executive Career Hub v12.8", layout="wide")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
 tab1, tab2 = st.tabs(["🚀 Architect", "📊 History Archive"])
@@ -73,42 +73,42 @@ with tab1:
 
     if st.button("✨ GENERATE FULL RESUME"):
         if not up_file or not jd_input:
-            st.warning("All inputs are required.")
+            st.warning("All fields are required.")
         else:
-            with st.spinner("Processing Stable Generation..."):
+            with st.spinner("Locking History & Restoring Stability..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # PROMPT FROM THE STABLE PHASE
+                    # STABLE PROMPT
                     prompt = f"""
                     Tailor this resume for {role} at {comp}. 
 
-                    STRICT REQUIREMENTS:
-                    1. EDIT ONLY: 'About Myself', 'Strategic Competencies', 'Skills', and the accomplishments for 'Dabouq Trading Co'.
-                    2. LOCK ALL DATES: Every job MUST keep its Company Name and Date Range (e.g., 2022 - Present).
-                    3. CURRENT JOB (Dabouq): Expand to 12 detailed points.
-                    4. PAST HISTORY: Copy Ship Hero, Spelenzo, and Citi Bank exactly as they are in the resume with their dates.
-                    5. SEQUENCE: About Myself > Competencies > Work Experience > Skills > Education > Languages.
+                    CRITICAL INSTRUCTIONS:
+                    1. EDIT ONLY: 'About Myself', 'Strategic Competencies', 'Skills', and 'Dabouq Trading Co'.
+                    2. LOCK ALL DATES: Every job must include its Company Name and Date Range (e.g., 2022 - Present).
+                    3. CURRENT JOB (Dabouq): Rewrite accomplishments with 12 points relevant to JD.
+                    4. PAST ROLES: Copy Ship Hero (2021-2022), Spelenzo (2013-2021), and Citi Bank (2006-2013) headers and bullets exactly.
+                    5. SEQUENCE: About Myself > Strategic Competencies > Work Experience > Skills > Education > Languages.
 
-                    Rules: No markdown symbols. Start with '• ABOUT MYSELF'.
+                    Rules: No markdown. Start with '• ABOUT MYSELF'.
                     SOURCE: {res_text}
                     """
                     
+                    # USING THE MOST COMPATIBLE SONNET MODEL ID
                     resp = client.messages.create(
-                        model="claude-3-5-sonnet-20241022", 
+                        model="claude-3-sonnet-20240229", 
                         max_tokens=4000, 
                         messages=[{"role": "user", "content": prompt}]
                     )
                     tailored_res = resp.content[0].text
 
-                    # Database logging
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume) VALUES (?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res))
                     conn.commit()
                     
-                    st.success("Resume Optimized!")
+                    st.success("Resume Optimized Successfully!")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res), f"{comp}_Resume.pdf")
                     st.markdown(f'<div style="background-color:white; color:black; padding:35px; border:2px solid #000;">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
@@ -122,6 +122,5 @@ with tab2:
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
             with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
-                # Fixed unique key logic for history downloads
-                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"recov_{row['id']}")
+                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"final_fix_{row['id']}")
                 st.write(row["tailored_resume"])
