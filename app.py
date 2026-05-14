@@ -23,13 +23,11 @@ def get_db_connection():
 conn = get_db_connection()
 c = conn.cursor()
 
-# --- v11.0 CLEANING ENGINE (DATE PRESERVATION SHIELD) ---
+# --- v11.1 CLEANING ENGINE ---
 def clean_resume_text(text):
-    # Remove AI Markdown headers
+    # Remove AI Markdown noise
     text = re.sub(r'#+', '', text)
-    
-    # Remove asterisks but ONLY if they aren't helping to define a date range
-    # Protects patterns like "2022 - 2024" or "Present"
+    # Protect numbering (1. 2. 3.) and remove other asterisks
     text = re.sub(r'\*(?!\s*\d\.)', '', text)
     
     # Hard Filter for Header Duplication
@@ -77,6 +75,7 @@ def apply_executive_css():
             background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #EEEEEE !important;
             margin: 20px 0px !important; box-shadow: 0px 4px 15px rgba(0,0,0,0.05);
         }
+        [data-testid="stDataFrame"] div[role="gridcell"] { text-align: center !important; justify-content: center !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -101,38 +100,37 @@ with tab1:
         if not up_file or not jd_input:
             st.warning("All fields are required.")
         else:
-            with st.spinner("Processing Executive History and Dates..."):
+            with st.spinner("Executing Strategic Tailoring..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # UPDATED PROMPT: Explicitly ordering preservation of Company and Dates
                     prompt = f"""
-                    Rewrite the resume for {role} at {comp}.
+                    Tailor this resume for {role} at {comp}. 
                     
-                    STRICT FORMATTING FOR WORK EXPERIENCE:
-                    - For each job, you MUST include the COMPANY NAME and the DATE RANGE (e.g., 2022 - Present) on the first line.
-                    - Under the company/date line, list the Job Title.
-                    - Under the Job Title, use a numbered list (1., 2., 3.) for accomplishments.
-                    - Total work experience length: Max 3500 characters.
+                    STRICT WORK EXPERIENCE RULES:
+                    1. ONLY rewrite the accomplishments for the CURRENT role at DABOUQ TRADING CO.
+                    2. For DABOUQ TRADING CO, the accomplishments MUST NOT exceed 3500 characters.
+                    3. Use 1., 2., 3. numbering for accomplishments under DABOUQ.
+                    4. For ALL PREVIOUS ROLES (Ship Hero, Spelenzo, Citi Bank), copy their Company Name, Dates, and Content EXACTLY from the resume. Do NOT change them.
                     
-                    MANDATORY SECTIONS:
-                    • ABOUT MYSELF
-                    • STRATEGIC COMPETENCIES
-                    • WORK EXPERIENCE
+                    MANDATORY SECTIONS (DO NOT SKIP):
+                    • ABOUT MYSELF (Tailored)
+                    • STRATEGIC COMPETENCIES (Tailored)
+                    • WORK EXPERIENCE (Selective tailoring applied)
                     • SKILLS (Extracted from JD)
-                    • EDUCATION & TRAINING
-                    • LANGUAGE SKILLS
+                    • EDUCATION & TRAINING (Copied exactly)
+                    • LANGUAGE SKILLS (Arabic, English, German, French - Copied exactly)
                     
-                    No markdown (# or *). No personal contact info. Start with '• ABOUT MYSELF'.
-                    RESUME DATA: {res_text}
+                    No markdown (# or *). No contact info. Start with '• ABOUT MYSELF'.
+                    RESUME: {res_text}
                     """
                     
                     resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                     tailored_res = clean_resume_text(resp.content[0].text)
                     
-                    # Scoring with Quota Fail-Safe
+                    # Bypass Scoring if Quota hits 429
                     sm, sa = 0, 0
                     try:
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
@@ -140,21 +138,21 @@ with tab1:
                         scores = [int(s.strip()) for s in scr.text.split(',') if s.strip().isdigit()]
                         sm, sa = scores[0], scores[1]
                     except:
-                        st.info("⚠️ Scoring limit reached. Resume saved successfully.")
+                        st.info("⚠️ Scoring service busy. Resume generated and saved successfully.")
 
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    st.success("Resume Archived with Full Dates.")
+                    st.success("Clean Resume Generated and Archived.")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                     st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
-    st.header("📊 History Archive")
-    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role' FROM applications ORDER BY id DESC", conn)
+    st.header("📊 Strategic Application Archive")
+    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role', score_match as 'Match Score %', score_ats as 'ATS Score %' FROM applications ORDER BY id DESC", conn)
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
         st.divider()
@@ -162,4 +160,6 @@ with tab2:
         for _, row in full_logs.iterrows():
             with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
                 st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"dl_{row['id']}")
+                st.write("**Job Description Reference:**")
+                st.caption(row['raw_jd'])
                 st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
