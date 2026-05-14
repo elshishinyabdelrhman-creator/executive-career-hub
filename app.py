@@ -10,7 +10,7 @@ import re
 
 # --- DATABASE SETUP ---
 def get_db_connection():
-    conn = sqlite3.connect('career_hub_v12_6.db', check_same_thread=False)
+    conn = sqlite3.connect('career_hub_stable.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS applications 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
@@ -21,8 +21,9 @@ def get_db_connection():
 conn = get_db_connection()
 c = conn.cursor()
 
+# --- CLEANING ENGINE (PROTECTS DATES & TITLES) ---
 def clean_resume_text(text):
-    # Only remove hashtags. Protect all numbers, dates, and dashes.
+    # Strip ONLY markdown headers. PROTECT ALL NUMBERS AND DATES.
     text = re.sub(r'#+', '', text)
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:"]
     lines = text.split('\n')
@@ -37,7 +38,7 @@ def generate_styled_pdf(resume_data):
     <head>
         <style>
             @page {{ size: A4; margin: 15mm 15mm; }}
-            body {{ font-family: "Arial", sans-serif; color: #000; line-height: 1.45; font-size: 10.5pt; }}
+            body {{ font-family: "Arial", sans-serif; color: #000; line-height: 1.5; font-size: 10.5pt; }}
             .header {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }}
             .content {{ white-space: pre-wrap; text-align: justify; }}
         </style>
@@ -45,7 +46,7 @@ def generate_styled_pdf(resume_data):
     <body>
         <div class="header">
             <div style="font-size: 22pt; font-weight: bold;">Abdelrhman El Shishiny</div>
-            <div style="font-size: 10pt; margin-top: 5px;">Jeddah, Saudi Arabia | elshishinyabdelrhman@gmail.com | (+966) 577534641</div>
+            <div style="font-size: 9pt; margin-top: 5px;">Jeddah, Saudi Arabia | elshishinyabdelrhman@gmail.com | (+966) 577534641</div>
         </div>
         <div class="content">{clean_content}</div>
     </body>
@@ -56,7 +57,7 @@ def generate_styled_pdf(resume_data):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-st.set_page_config(page_title="Executive Career Hub v12.6", layout="wide")
+st.set_page_config(page_title="Executive Career Hub v12.7", layout="wide")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
 tab1, tab2 = st.tabs(["🚀 Architect", "📊 History Archive"])
@@ -72,39 +73,29 @@ with tab1:
 
     if st.button("✨ GENERATE FULL RESUME"):
         if not up_file or not jd_input:
-            st.warning("All fields are required.")
+            st.warning("All inputs are required.")
         else:
-            with st.spinner("Locking 100% of Career Data..."):
+            with st.spinner("Processing Stable Generation..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # V12.6: THE "ZERO-REVISION" PROMPT
+                    # PROMPT FROM THE STABLE PHASE
                     prompt = f"""
-                    Rewrite the resume for {role} at {comp}. 
+                    Tailor this resume for {role} at {comp}. 
 
-                    CRITICAL: YOU MUST RENDER EVERY SINGLE JOB LISTED BELOW WITH ITS EXACT TITLE AND DATE.
-                    
-                    JOB 1: PERFORMANCE MARKETING MANAGER | DABOUQ TRADING CO | 2022 - PRESENT
-                    - Rewrite with 12 points focused on margin-first ROI and GCC e-commerce.
-                    
-                    JOB 2: ACCOUNT MANAGER | SHIP HERO | 2021 - 2022
-                    - Copy exactly from source. Header and Dates must be visible.
-                    
-                    JOB 3: SENIOR CONTENT & PARTNERSHIPS MANAGER | SPELENZO | 2013 - 2021
-                    - Copy exactly from source. Header and Dates must be visible.
-                    
-                    JOB 4: RELATIONSHIP MANAGER | CITI BANK | 2006 - 2013
-                    - Copy exactly from source. Header and Dates must be visible.
+                    STRICT REQUIREMENTS:
+                    1. EDIT ONLY: 'About Myself', 'Strategic Competencies', 'Skills', and the accomplishments for 'Dabouq Trading Co'.
+                    2. LOCK ALL DATES: Every job MUST keep its Company Name and Date Range (e.g., 2022 - Present).
+                    3. CURRENT JOB (Dabouq): Expand to 12 detailed points.
+                    4. PAST HISTORY: Copy Ship Hero, Spelenzo, and Citi Bank exactly as they are in the resume with their dates.
+                    5. SEQUENCE: About Myself > Competencies > Work Experience > Skills > Education > Languages.
 
-                    ORDER: • ABOUT MYSELF > • STRATEGIC COMPETENCIES > • WORK EXPERIENCE > • SKILLS > • EDUCATION > • LANGUAGE SKILLS.
-                    
-                    Rules: No markdown. Start with '• ABOUT MYSELF'.
+                    Rules: No markdown symbols. Start with '• ABOUT MYSELF'.
                     SOURCE: {res_text}
                     """
                     
-                    # STABLE MODEL ID
                     resp = client.messages.create(
                         model="claude-3-5-sonnet-20241022", 
                         max_tokens=4000, 
@@ -112,6 +103,7 @@ with tab1:
                     )
                     tailored_res = resp.content[0].text
 
+                    # Database logging
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume) VALUES (?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res))
                     conn.commit()
@@ -123,12 +115,13 @@ with tab1:
                     st.error(f"Error: {e}")
 
 with tab2:
-    st.header("📊 Archive")
+    st.header("📊 History Archive")
     logs = pd.read_sql_query("SELECT id, date, company, role FROM applications ORDER BY id DESC", conn)
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
             with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
-                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"v12_6_{row['id']}")
+                # Fixed unique key logic for history downloads
+                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"recov_{row['id']}")
                 st.write(row["tailored_resume"])
