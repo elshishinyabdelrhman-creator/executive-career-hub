@@ -8,24 +8,38 @@ from datetime import datetime
 from weasyprint import HTML
 import io
 
-# --- Database Setup (Preserving All Data Fields) ---
-conn = sqlite3.connect('career_hub_v9.db', check_same_thread=False)
+# --- DATABASE RECOVERY & MIGRATION LOGIC ---
+def migrate_data():
+    # Connect to the new database
+    new_conn = sqlite3.connect('career_hub_v9.db', check_same_thread=False)
+    new_c = new_conn.cursor()
+    new_c.execute('''CREATE TABLE IF NOT EXISTS applications 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
+                  role TEXT, raw_jd TEXT, tailored_resume TEXT, 
+                  score_match INTEGER, score_ats INTEGER)''')
+    
+    try:
+        # Check if old data exists in v7
+        old_conn = sqlite3.connect('career_hub_v7.db', check_same_thread=False)
+        old_logs = pd.read_sql_query("SELECT * FROM applications", old_conn)
+        
+        # Move old data to new table if new table is empty
+        check_empty = new_c.execute("SELECT count(*) FROM applications").fetchone()[0]
+        if check_empty == 0 and not old_logs.empty:
+            for _, row in old_logs.iterrows():
+                # Map old 'title' to new 'role' and 'raw_jd'
+                new_c.execute('''INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) 
+                                 VALUES (?, ?, ?, ?, ?, ?, ?)''', 
+                              (row['date'], row['company'], row['title'], row['raw_jd'], row['tailored_resume'], row['score_match'], row['score_ats']))
+            new_conn.commit()
+    except Exception:
+        pass # No old database found or already migrated
+    return new_conn
+
+conn = migrate_data()
 c = conn.cursor()
-c.execute('''CREATE TABLE IF NOT EXISTS applications 
-             (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-              date TEXT, 
-              company TEXT, 
-              role TEXT, 
-              raw_jd TEXT, 
-              tailored_resume TEXT, 
-              score_match INTEGER, 
-              score_ats INTEGER)''')
-conn.commit()
 
-def trim_job_description(jd, max_chars=3800):
-    if len(jd) <= max_chars: return jd
-    return jd[:1800] + "\n\n[...JD TRIMMED FOR PROCESSING...]\n\n" + jd[-1800:]
-
+# --- Utility Functions ---
 def generate_styled_pdf(resume_data, company_name):
     html_template = f'''
     <!DOCTYPE html>
@@ -56,7 +70,6 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI Styling (Light Theme) ---
 def apply_executive_css():
     st.markdown("""
         <style>
@@ -70,18 +83,14 @@ def apply_executive_css():
             padding: 40px !important;
             border: 2px solid #000000 !important;
             margin: 20px 0px !important;
-            box-shadow: 5px 5px 15px rgba(0,0,0,0.1) !important;
         }
-        /* Table Styling */
-        .styled-table { width: 100%; border-collapse: collapse; margin: 25px 0; font-size: 0.9em; min-width: 400px; }
-        .styled-table th { background-color: #F8F9FA; color: #000000; text-align: left; padding: 12px 15px; border: 1px solid #DDDDDD; }
-        .styled-table td { padding: 12px 15px; border: 1px solid #DDDDDD; }
         </style>
     """, unsafe_allow_html=True)
 
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 apply_executive_css()
 
+# API Keys
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
@@ -103,12 +112,12 @@ with tab1:
 
     if st.button("✨ GENERATE & SAVE"):
         if not up_file or not jd:
-            st.warning("Missing data.")
+            st.warning("Please provide data.")
         else:
             with st.spinner("Processing..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nTailored content for testing..."
+                        tailored_res = "• ABOUT MYSELF\nSample experience content..."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(up_file)
@@ -117,49 +126,43 @@ with tab1:
                         prompt = f"Rewrite resume for {role} at {comp}. Start with • ABOUT MYSELF. RESUME: {res_text} JD: {jd}"
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text
-                        sm, sa = 95, 96 # Logic simplified
+                        sm, sa = 95, 96 
 
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), comp, role, jd, tailored_res, sm, sa))
                     conn.commit()
-                    
-                    st.success("Archived in History Table!")
+                    st.success("Saved to Archive!")
                     st.metric("Match Score", f"{sm}%")
-                    pdf = generate_styled_pdf(tailored_res, comp)
-                    st.download_button("📥 Download PDF", data=pdf, file_name=f"{comp}_Resume.pdf")
-                    st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
+                    st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
     st.header("📊 Strategic Application Archive")
-    logs = pd.read_sql_query("SELECT id as '#', date as 'Date/Time', company as 'Company', role as 'Role', raw_jd as 'Job Description' FROM applications ORDER BY id DESC", conn)
+    # Fetching with Serial (#) and full details
+    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role' FROM applications ORDER BY id DESC", conn)
     
     if logs.empty:
-        st.info("Archive is empty.")
+        st.info("Archive is currently empty. Generate a resume to start your history.")
     else:
-        # Display the data as a searchable table
         st.dataframe(logs, use_container_width=True, hide_index=True)
-        
         st.divider()
-        st.subheader("🛠️ Manage Archive Entries")
         
-        # Details & Actions for each entry
+        # Details section for individual entry management
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
-            with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
+            with st.expander(f"Entry #{row['id']} | {row['company']} | {row['role']}"):
                 c1, c2, c3 = st.columns([1, 1, 1])
-                with c1: st.info(f"**Date:** {row['date']}")
+                with c1: st.write(f"**Date:** {row['date']}")
                 with c2:
                     pdf_h = generate_styled_pdf(row["tailored_resume"], row['company'])
-                    st.download_button("📥 Get PDF", pdf_h, f"{row['company']}.pdf", key=f"d_{row['id']}")
+                    st.download_button("📥 Download PDF", pdf_h, f"{row['company']}.pdf", key=f"d_{row['id']}")
                 with c3:
-                    if st.button("🗑️ Delete", key=f"r_{row['id']}"):
+                    if st.button("🗑️ Remove Entry", key=f"r_{row['id']}"):
                         c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
                         conn.commit()
                         st.rerun()
                 
-                st.write("**Full Job Description saved:**")
+                st.write("**Job Description:**")
                 st.caption(row['raw_jd'])
-                st.write("**Tailored Resume Content:**")
                 st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
