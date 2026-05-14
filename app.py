@@ -8,7 +8,7 @@ from datetime import datetime
 from weasyprint import HTML
 import io
 
-# --- DATABASE SETUP & MIGRATION ---
+# --- DATABASE SETUP ---
 def migrate_data():
     new_conn = sqlite3.connect('career_hub_v9.db', check_same_thread=False)
     new_c = new_conn.cursor()
@@ -62,7 +62,7 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI STYLING (V9.4: CENTER ALIGNMENT FIX) ---
+# --- UI STYLING ---
 def apply_executive_css():
     st.markdown("""
         <style>
@@ -71,13 +71,6 @@ def apply_executive_css():
             color: #000000 !important;
             -webkit-text-fill-color: #000000 !important;
         }
-        
-        /* CENTER ALIGNMENT FOR DATAFRAME CELLS */
-        [data-testid="stTable"] td, [data-testid="stTable"] th, 
-        [data-testid="stDataFrame"] td, [data-testid="stDataFrame"] th {
-            text-align: center !important;
-        }
-
         .paper-container {
             background-color: #FFFFFF !important;
             padding: 40px !important;
@@ -116,13 +109,13 @@ with tab1:
             with st.spinner("Processing..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nSample experience content..."
+                        tailored_res = "• ABOUT MYSELF\nSample content..."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(up_file)
                         res_text = "".join([p.extract_text() or "" for p in reader.pages])
                         client = anthropic.Anthropic(api_key=claude_key)
-                        prompt = f"Rewrite resume for {role} at {comp}. No markdown. Start with • ABOUT MYSELF. RESUME: {res_text} JD: {jd}"
+                        prompt = f"Rewrite resume for {role} at {comp}. Start with • ABOUT MYSELF. RESUME: {res_text} JD: {jd}"
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text
                         sm, sa = 95, 96 
@@ -142,20 +135,30 @@ with tab2:
     if logs.empty:
         st.info("Archive is empty.")
     else:
-        # Using column config to enforce center alignment via Streamlit's API
+        # --- THE FIX: COLUMN CONFIG FOR CENTER ALIGNMENT ---
         st.dataframe(
             logs, 
             use_container_width=True, 
             hide_index=True,
             column_config={
-                "#": st.column_config.Column(width="small", help="Serial Number"),
-                "Applied At": st.column_config.Column(width="medium"),
-                "Company": st.column_config.Column(width="medium"),
-                "Role": st.column_config.Column(width="medium"),
+                "#": st.column_config.TextColumn("#", width="small"),
+                "Applied At": st.column_config.TextColumn("Applied At", width="medium"),
+                "Company": st.column_config.TextColumn("Company", width="medium"),
+                "Role": st.column_config.TextColumn("Role", width="large")
             }
         )
-        st.divider()
         
+        # We use st.markdown with a scoped CSS hack to force table alignment specifically in this tab
+        st.markdown("""
+            <style>
+                div[data-testid="stDataFrame"] div[role="gridcell"] {
+                    text-align: center !important;
+                    justify-content: center !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
             with st.expander(f"Entry #{row['id']} | {row['company']} | {row['role']}"):
@@ -163,12 +166,10 @@ with tab2:
                 with c1: st.write(f"**Date:** {row['date']}")
                 with c2:
                     pdf_h = generate_styled_pdf(row["tailored_resume"], row['company'])
-                    st.download_button("📥 Download PDF", pdf_h, f"{row['company']}.pdf", key=f"d_{row['id']}")
+                    st.download_button("📥 PDF", pdf_h, f"{row['company']}.pdf", key=f"d_{row['id']}")
                 with c3:
-                    if st.button("🗑️ Remove Entry", key=f"r_{row['id']}"):
+                    if st.button("🗑️ Remove", key=f"r_{row['id']}"):
                         c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
                         conn.commit()
                         st.rerun()
-                st.write("**Job Description:**")
-                st.caption(row['raw_jd'])
                 st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
