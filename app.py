@@ -10,7 +10,7 @@ import re
 
 # --- DATABASE SETUP ---
 def get_db_connection():
-    conn = sqlite3.connect('career_hub_v12_4.db', check_same_thread=False)
+    conn = sqlite3.connect('career_hub_v12_5.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS applications 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
@@ -22,7 +22,6 @@ conn = get_db_connection()
 c = conn.cursor()
 
 def clean_resume_text(text):
-    # Only remove hashtags. Protect all numbers, dates, and titles.
     text = re.sub(r'#+', '', text)
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:"]
     lines = text.split('\n')
@@ -38,7 +37,7 @@ def generate_styled_pdf(resume_data):
         <style>
             @page {{ size: A4; margin: 15mm 15mm; }}
             body {{ font-family: "Arial", sans-serif; color: #000; line-height: 1.45; font-size: 10.5pt; }}
-            .header {{ text-align: center; border-bottom: 1.5px solid #000; padding-bottom: 10px; margin-bottom: 15px; }}
+            .header {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }}
             .content {{ white-space: pre-wrap; text-align: justify; }}
         </style>
     </head>
@@ -56,7 +55,7 @@ def generate_styled_pdf(resume_data):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-st.set_page_config(page_title="Executive Career Hub v12.4", layout="wide")
+st.set_page_config(page_title="Executive Career Hub v12.5", layout="wide")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
 tab1, tab2 = st.tabs(["🚀 Architect", "📊 History Archive"])
@@ -80,31 +79,36 @@ with tab1:
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # V12.4: PHYSICALLY DEFINED TITLES AND DATES
+                    # V12.5: CORRECT MODEL ID + HARD-LOCKED TITLES/DATES
                     prompt = f"""
                     Rewrite the resume for {role} at {comp}. 
 
-                    YOU MUST USE THESE EXACT HEADERS (TITLES + DATES):
+                    CRITICAL: YOU MUST INCLUDE THESE EXACT HEADERS (JOB TITLE + COMPANY + DATE):
                     
                     JOB 1: PERFORMANCE MARKETING MANAGER | DABOUQ TRADING CO | 2022 - PRESENT
-                    - Rewrite this section with 12 professional points. Focus on margin-first performance marketing, ROI, and GCC markets. Number them 1. to 12.
+                    - Rewrite with 12 professional points. Use 1. to 12. numbering.
                     
                     JOB 2: ACCOUNT MANAGER | SHIP HERO | 2021 - 2022
-                    - Copy the content exactly from the source resume. Do not change the title or dates.
+                    - Copy content exactly from source. Do NOT omit this title or date.
                     
                     JOB 3: SENIOR CONTENT & PARTNERSHIPS MANAGER | SPELENZO | 2013 - 2021
-                    - Copy the content exactly from the source resume. Do not change the title or dates.
+                    - Copy content exactly from source. Do NOT omit this title or date.
                     
                     JOB 4: RELATIONSHIP MANAGER | CITI BANK | 2006 - 2013
-                    - Copy the content exactly from the source resume. Do not change the title or dates.
+                    - Copy content exactly from source. Do NOT omit this title or date.
 
                     MANDATORY SEQUENCE: • ABOUT MYSELF > • STRATEGIC COMPETENCIES > • WORK EXPERIENCE > • SKILLS > • EDUCATION > • LANGUAGE SKILLS.
                     
-                    Rules: No markdown symbols. No contact info. Start with '• ABOUT MYSELF'.
+                    No markdown. Start with '• ABOUT MYSELF'.
                     SOURCE: {res_text}
                     """
                     
-                    resp = client.messages.create(model="claude-3-5-sonnet-20240620", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
+                    # FIXED MODEL ID
+                    resp = client.messages.create(
+                        model="claude-3-5-sonnet-latest", 
+                        max_tokens=4000, 
+                        messages=[{"role": "user", "content": prompt}]
+                    )
                     tailored_res = resp.content[0].text
 
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume) VALUES (?, ?, ?, ?, ?)",
@@ -118,12 +122,12 @@ with tab1:
                     st.error(f"Error: {e}")
 
 with tab2:
-    st.header("📊 History Tracker")
+    st.header("📊 History Archive")
     logs = pd.read_sql_query("SELECT id, date, company, role FROM applications ORDER BY id DESC", conn)
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
             with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
-                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"hist_v12_{row['id']}")
+                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"hist_v12_5_{row['id']}")
                 st.write(row["tailored_resume"])
