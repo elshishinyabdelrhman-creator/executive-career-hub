@@ -1,6 +1,5 @@
 import streamlit as st
 from google import genai
-import anthropic
 from pypdf import PdfReader
 import sqlite3
 import pandas as pd
@@ -33,27 +32,18 @@ def apply_executive_css():
         </style>
     """, unsafe_allow_html=True)
 
-def display_colored_metric(label, value):
-    color = "#00FF00" if value >= 80 else "#FFD700" if value >= 50 else "#FF4B4B"
-    st.markdown(f"""
-        <div style="background-color: #1E1E1E; padding: 22px; border-radius: 12px; border-bottom: 4px solid {color}; margin-bottom: 10px;">
-            <p style="color: #888888; margin: 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 1px;">{label.upper()}</p>
-            <span style="color: {color}; margin: 0; font-size: 2.8rem; font-weight: 900;">{value}%</span>
-        </div>
-    """, unsafe_allow_html=True)
-
 # --- Configuration ---
 st.set_page_config(page_title="Executive Resume Architect", layout="wide")
 apply_executive_css()
 
-gemini_key = st.secrets.get("GEMINI_API_KEY")
-claude_key = st.secrets.get("ANTHROPIC_API_KEY")
+active_api_key = st.secrets.get("GEMINI_API_KEY")
 
-# SET TO 1.5 FLASH FOR HIGH FREE TIER LIMITS
-GEMINI_MODEL = "gemini-1.5-flash" 
+# 2026 STABLE REPLACEMENT
+# gemini-3.1-flash-lite is the successor to 1.5-flash
+MODEL_ID = "gemini-3.1-flash-lite" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v5.8 | Gemini 1.5 Flash (Free Tier) | Claude Dormant")
+st.caption("v5.9 | Gemini 3.1 Flash-Lite | Free Tier Optimized")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History"])
 
@@ -61,60 +51,45 @@ with tab1:
     col_a, col_b = st.columns([2, 1])
     with col_a:
         company = st.text_input("Target Company", placeholder="e.g. Extra")
-        title = st.text_input("Target Role", placeholder="e.g. Digital Marketing Director")
+        title = st.text_input("Target Role", placeholder="e.g. Director")
         job_desc = st.text_area("Paste Job Description", height=300)
     with col_b:
         uploaded_file = st.file_uploader("Upload Master Resume", type="pdf")
-        
-        # We keep the engine choice but hard-disable Claude for now
-        engine_choice = st.radio("Primary Writing Engine:", ["Gemini 1.5 Flash", "Claude (Disabled)"])
+        engine_choice = st.radio("Primary Writing Engine:", ["Gemini 3.1 Flash-Lite", "Claude (Dormant)"])
 
     if st.button("✨ ARCHITECT COMPLETE RESUME"):
-        if "Disabled" in engine_choice:
-            st.error("Claude is currently deactivated to save credits. Please use Gemini 1.5 Flash.")
+        if "Dormant" in engine_choice:
+            st.error("Claude is deactivated. Use Gemini 3.1.")
         elif not uploaded_file or not job_desc:
             st.warning("All inputs required.")
         else:
-            with st.spinner(f"Architecting with {GEMINI_MODEL}..."):
+            with st.spinner(f"Architecting with {MODEL_ID}..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
+                    # FORCE PRODUCTION V1 ROUTE
+                    client = genai.Client(
+                        api_key=active_api_key,
+                        http_options={'api_version': 'v1'}
+                    )
+
                     prompt = f"""
                     Act as an Executive Career Architect. Rewrite this resume for {title} at {company}.
                     1. NO PLACEHOLDERS: Use zero asterisks (*). 
-                    2. CURRENT ROLE: 12-15 exhaustive achievement bullets focusing on P&L, ROI, and scale.
+                    2. CURRENT ROLE: 15 exhaustive achievement bullets focusing on P&L and ROI.
                     3. SKILLS: Categorized 'Strategic Competencies' section with 20+ keywords.
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
 
-                    # Gemini 1.5 Flash Call
-                    gem_client = genai.Client(api_key=gemini_key)
-                    resp = gem_client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-                    tailored_content = resp.text
+                    # Execute generation
+                    response = client.models.generate_content(model=MODEL_ID, contents=prompt)
+                    tailored_content = response.text.replace('*', '').replace('#', '')
 
-                    # Clean up any AI artifacts
-                    tailored_content = tailored_content.replace('*', '').replace('#', '')
-
-                    # Scoring extraction (Using the same Flash model)
-                    score_res = gem_client.models.generate_content(
-                        model=GEMINI_MODEL, 
-                        contents=f"Return only two integers separated by comma (Match, ATS): {tailored_content}"
-                    )
-                    try:
-                        nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
-                        sm, sa = nums[0], nums[1]
-                    except:
-                        sm, sa = 0, 0
-
+                    # DB Logging (Simplified for safety)
                     c.execute("INSERT INTO applications (date, company, title, engine, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Gemini 1.5", tailored_content, sm, sa))
+                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Gemini 3.1", tailored_content, 0, 0))
                     conn.commit()
-
-                    st.markdown("### 📊 Alignment Scores")
-                    m1, m2 = st.columns(2)
-                    with m1: display_colored_metric("Industry Match", sm)
-                    with m2: display_colored_metric("ATS Visibility", sa)
 
                     st.markdown("### 📝 Tailored Executive Document")
                     st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
@@ -125,7 +100,7 @@ with tab1:
 with tab2:
     st.header("Strategic Tracking System")
     try:
-        history_df = pd.read_sql_query("SELECT date, company, title, engine, score_match, score_ats FROM applications ORDER BY date DESC", conn)
+        history_df = pd.read_sql_query("SELECT date, company, title, engine FROM applications ORDER BY date DESC", conn)
         st.dataframe(history_df, use_container_width=True)
     except:
-        st.info("No applications logged in the current session.")
+        st.info("No logs yet.")
