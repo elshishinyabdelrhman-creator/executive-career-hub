@@ -50,38 +50,44 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI Styling (THE ABSOLUTE FINAL WHITE/BLACK FIX) ---
+# --- UI Styling (V9.1: FULL LIGHT THEME FIX) ---
 def apply_executive_css():
     st.markdown("""
         <style>
-        /* Overall App Theme */
-        .stApp { background-color: #0E1117 !important; }
+        /* Force Light Background for the entire app */
+        .stApp { 
+            background-color: #FFFFFF !important; 
+        }
         
-        /* The Wrapper for the White Paper */
+        /* Force Black Text for every possible element */
+        .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div {
+            color: #000000 !important;
+            -webkit-text-fill-color: #000000 !important;
+        }
+
+        /* The Professional Paper Container for the Resume */
         .paper-container {
             background-color: #FFFFFF !important;
             padding: 45px !important;
-            border-radius: 2px !important;
-            border: 1px solid #CCCCCC !important;
+            border-radius: 4px !important;
+            border: 2px solid #000000 !important;
             margin: 25px 0px !important;
-            box-shadow: 0px 5px 15px rgba(0,0,0,0.5) !important;
+            box-shadow: 5px 5px 15px rgba(0,0,0,0.1) !important;
         }
 
-        /* Forcing Black Text on EVERYTHING inside that paper */
-        .paper-container, .paper-container * {
+        /* Ensure input boxes are visible with black text */
+        .stTextInput input, .stTextArea textarea {
+            background-color: #F0F2F6 !important;
             color: #000000 !important;
-            background-color: #FFFFFF !important;
-            -webkit-text-fill-color: #000000 !important;
-            font-family: 'Arial', sans-serif !important;
-            line-height: 1.6 !important;
+            border: 1px solid #000000 !important;
         }
 
-        /* Labels and Metrics in the Sidebar stay White */
-        [data-testid="stMetricValue"] { color: #00FF00 !important; }
-        label, p, h1, h2, h3 { color: #FFFFFF; }
+        /* Metric Styling (Green score on white background) */
+        [data-testid="stMetricValue"] { color: #2E7D32 !important; font-weight: bold !important; }
+        [data-testid="stMetricLabel"] { color: #000000 !important; }
         
         /* Remove Button Style */
-        .stButton>button[kind="secondary"] { color: #FF4B4B !important; border-color: #FF4B4B !important; }
+        .stButton>button[kind="secondary"] { color: #D32F2F !important; border-color: #D32F2F !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -114,7 +120,7 @@ with tab1:
             with st.spinner("Executing Architecture..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nThis text is FORCED BLACK on WHITE background."
+                        tailored_res = "• ABOUT MYSELF\nSuccessfully switched to black text on white background."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(up_file)
@@ -143,10 +149,9 @@ with tab1:
                     pdf = generate_styled_pdf(tailored_res, comp)
                     st.download_button("📥 Download PDF", data=pdf, file_name=f"{comp}_Resume.pdf", mime="application/pdf")
                     
-                    # --- FORCED BLACK ON WHITE INJECTION ---
                     st.markdown(f'''
                         <div class="paper-container">
-                            <div style="color: #000000 !important; background-color: #FFFFFF !important;">
+                            <div style="color: #000000 !important;">
                                 {tailored_res}
                             </div>
                         </div>
@@ -170,10 +175,9 @@ with tab2:
                     c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
                     conn.commit()
                     st.rerun()
-            # --- FORCED BLACK ON WHITE INJECTION ---
             st.markdown(f'''
                 <div class="paper-container">
-                    <div style="color: #000000 !important; background-color: #FFFFFF !important;">
+                    <div style="color: #000000 !important;">
                         {row["tailored_resume"]}
                     </div>
                 </div>
