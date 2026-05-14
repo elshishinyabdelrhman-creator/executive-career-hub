@@ -7,10 +7,9 @@ import pandas as pd
 from datetime import datetime
 import unicodedata
 
-# --- Database Setup (v5 - Fresh Start to fix Schema Error) ---
+# --- Database Setup (v5) ---
 conn = sqlite3.connect('career_hub_v5.db', check_same_thread=False)
 c = conn.cursor()
-# Ensure the table matches the code exactly
 c.execute('''CREATE TABLE IF NOT EXISTS applications 
              (id INTEGER PRIMARY KEY, date TEXT, company TEXT, title TEXT, 
               engine TEXT, analysis TEXT, score_match INTEGER, score_ats INTEGER)''')
@@ -50,23 +49,24 @@ apply_executive_css()
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
-GEMINI_MODEL = "gemini-1.5-flash" 
-CLAUDE_MODEL = "claude-3-5-sonnet-latest" 
+# UPDATED 2026 STABLE MODEL IDs
+GEMINI_MODEL = "gemini-2.5-flash" 
+CLAUDE_MODEL = "claude-sonnet-4-6" # Updated from legacy 3.5 Sonnet
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v5.6 | Database Fixed | Hybrid AI Engine")
+st.caption("v5.7 | Claude 4.6 & Gemini 2.5 | Production Stable")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History"])
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
     with col_a:
-        company = st.text_input("Target Company")
-        title = st.text_input("Target Role")
+        company = st.text_input("Target Company", placeholder="e.g. Sofitel")
+        title = st.text_input("Target Role", placeholder="e.g. General Manager")
         job_desc = st.text_area("Paste Job Description", height=300)
     with col_b:
         uploaded_file = st.file_uploader("Upload Master Resume", type="pdf")
-        engine_choice = st.radio("Primary Writing Engine:", ["Claude 3.5 Sonnet", "Gemini 1.5 Flash"])
+        engine_choice = st.radio("Primary Writing Engine:", ["Claude Sonnet 4.6", "Gemini 2.5 Flash"])
 
     if st.button("✨ ARCHITECT COMPLETE RESUME"):
         if not uploaded_file or not job_desc:
@@ -80,7 +80,7 @@ with tab1:
                     prompt = f"""
                     Act as an Executive Career Architect. Rewrite this resume for {title} at {company}.
                     1. NO PLACEHOLDERS: Use zero asterisks (*). 
-                    2. CURRENT ROLE: 12-15 exhaustive achievement bullets.
+                    2. CURRENT ROLE: 12-15 exhaustive achievement bullets focusing on P&L and ROI.
                     3. SKILLS: Categorized 'Strategic Competencies' section with 20+ keywords.
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
@@ -94,14 +94,15 @@ with tab1:
                         )
                         tailored_content = resp.content[0].text
                     else:
-                        gem_client = genai.Client(api_key=gemini_key)
+                        # Production v1 Route for Gemini 2.5
+                        gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
                         resp = gem_client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
                         tailored_content = resp.text
 
                     tailored_content = tailored_content.replace('*', '')
 
-                    # Use Gemini for Score Extraction
-                    score_client = genai.Client(api_key=gemini_key)
+                    # Scoring extraction
+                    score_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
                     score_res = score_client.models.generate_content(
                         model=GEMINI_MODEL, 
                         contents=f"Return only two integers separated by comma (Match, ATS): {tailored_content}"
@@ -112,7 +113,6 @@ with tab1:
                     except:
                         sm, sa = 0, 0
 
-                    # SAVE TO DB (Using correct column: engine)
                     c.execute("INSERT INTO applications (date, company, title, engine, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d"), company, title, engine_choice, tailored_content, sm, sa))
                     conn.commit()
@@ -122,7 +122,7 @@ with tab1:
                     with m1: display_colored_metric("Industry Match", sm)
                     with m2: display_colored_metric("ATS Visibility", sa)
 
-                    st.markdown("### 📝 Tailored Resume Document")
+                    st.markdown("### 📝 Tailored Executive Document")
                     st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
                     
                 except Exception as e:
@@ -131,8 +131,7 @@ with tab1:
 with tab2:
     st.header("Strategic Tracking System")
     try:
-        # Pull data from the NEW v5 database
         history_df = pd.read_sql_query("SELECT date, company, title, engine, score_match, score_ats FROM applications ORDER BY date DESC", conn)
         st.dataframe(history_df, use_container_width=True)
-    except Exception as e:
-        st.info("No applications found in the new database yet.")
+    except:
+        st.info("No applications found yet.")
