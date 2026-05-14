@@ -1,7 +1,6 @@
+streamlit
+anthropic
 google-genai
 pypdf
-fpdf2
-markdown2
 pandas
-anthropic
 weasyprint

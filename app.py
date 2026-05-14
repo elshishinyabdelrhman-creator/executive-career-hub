@@ -30,7 +30,7 @@ def generate_pdf_resume(resume_text, company_name):
     <head>
         <style>
             @page {{ size: A4; margin: 20mm; }}
-            body {{ font-family: 'Helvetica', sans-serif; line-height: 1.5; font-size: 11pt; color: #333; }}
+            body {{ font-family: 'Helvetica', 'Arial', sans-serif; line-height: 1.5; font-size: 11pt; color: #333; }}
             .header {{ text-align: center; border-bottom: 2px solid #1a3a5f; margin-bottom: 20px; padding-bottom: 10px; }}
             h1 {{ color: #1a3a5f; margin: 0; text-transform: uppercase; font-size: 22pt; }}
             .content {{ white-space: pre-wrap; }}
@@ -108,21 +108,28 @@ Jeddah, Saudi Arabia | elshishinyabdelrhman@gmail.com | (+966) 577534641
 - Performance & Growth: Multi-Channel Paid Media (Meta, Google Ads), Technical SEO, ROI Optimization.
 
 • WORK EXPERIENCE
+
 MARKETING & BUSINESS DEVELOPMENT DIRECTOR | DABOUQ TRADING CO.
 Jeddah, Saudi Arabia | 2025 – PRESENT
 - Spearheaded full-spectrum digital transformation by architecting the company's platform from inception.
+- Driven revenue growth across GCC markets through data-driven multi-channel campaigns.
 - Integrated HubSpot-aligned CRM and automation workflows to manage sales funnels.
 
 CONTENT & PARTNERSHIPS MANAGER | HUNGERSTATION
 Jeddah, Saudi Arabia | 2021 – 2024
 - Led content strategy and platform management for the leading delivery app in KSA.
+- Managed end-to-end CRM lifecycle campaigns and in-app messaging.
+
+EDUCATION
+- MBA | University of Cumbria, UK
+- Bachelor of Commerce | Ain Shams University, Egypt
                         """
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
                         resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                         claude_client = anthropic.Anthropic(api_key=claude_key)
-                        prompt = f"Rewrite full resume for {job_title} at {company_name}. Mirror JD keywords. Include full history. RESUME: {resume_text} JD: {adj_jd}"
+                        prompt = f"Rewrite full resume for {job_title} at {company_name}. Mirror JD vocabulary. Include full history. RESUME: {resume_text} JD: {adj_jd}"
                         resp = claude_client.messages.create(model=CLAUDE_MODEL, max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text.replace('*', '')
                         
