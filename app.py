@@ -11,7 +11,7 @@ import re
 
 # --- DATABASE SETUP ---
 def get_db_connection():
-    conn = sqlite3.connect('career_hub_v12.db', check_same_thread=False)
+    conn = sqlite3.connect('career_hub_v12_1.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS applications 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
@@ -23,9 +23,9 @@ def get_db_connection():
 conn = get_db_connection()
 c = conn.cursor()
 
-# --- v12.0 CLEANING ENGINE (ZERO-STRIP) ---
+# --- v12.1 CLEANING ENGINE (ZERO-STRIP) ---
 def clean_resume_text(text):
-    # Only remove AI hashtags. PROTECT ALL NUMBERS AND DASHES.
+    # Protects all characters except AI markdown hashtags
     text = re.sub(r'#+', '', text)
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:", "Email:"]
     lines = text.split('\n')
@@ -40,7 +40,7 @@ def generate_styled_pdf(resume_data, company_name):
     <head>
         <style>
             @page {{ size: A4; margin: 15mm 15mm; }}
-            body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.5; font-size: 10.5pt; }}
+            body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.4; font-size: 10.5pt; }}
             .name-header {{ font-size: 20pt; font-weight: bold; text-align: center; margin-bottom: 2px; }}
             .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 12px; border-bottom: 1.2px solid #000; padding-bottom: 10px; }}
             .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 10px; }}
@@ -61,20 +61,7 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-def apply_executive_css():
-    st.markdown("""
-        <style>
-        .stApp { background-color: #FFFFFF !important; }
-        .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div { color: #000000 !important; }
-        .paper-container {
-            background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #000000 !important;
-            margin: 20px 0px !important; line-height: 1.6;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-st.set_page_config(page_title="Executive Career Hub v12.0", layout="wide")
-apply_executive_css()
+st.set_page_config(page_title="Executive Career Hub v12.1", layout="wide")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
@@ -94,25 +81,38 @@ with tab1:
         if not up_file or not jd_input:
             st.warning("All inputs are required.")
         else:
-            with st.spinner("Locking History & Tailoring Current Role..."):
+            with st.spinner("Locking All Job Positions..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
+                    # V12.1 PROMPT: FORCED INCLUSION OF ALL POSITIONS
                     prompt = f"""
                     Rewrite the resume for {role} at {comp}. 
 
-                    MANDATORY DATE LOCK:
-                    1. You MUST include the DATE RANGE for EVERY job entry. 
-                    2. PREVIOUS ROLES: Copy headers, DATES, and bullets exactly for:
-                       - SHIP HERO | 2021 - 2022
-                       - SPELENZO | 2013 - 2021
-                       - CITI BANK | 2006 - 2013
-                    3. CURRENT JOB (DABOUQ): Rewrite with 10-12 points (1., 2., 3.). Include 'DABOUQ TRADING CO | 2022 - PRESENT'.
-                    4. ONLY EDIT: 'About Myself', 'Strategic Competencies', 'Skills', and 'Dabouq'.
-                    5. SEQUENCE: About Myself > Competencies > Work Experience > Skills > Education > Languages.
+                    CRITICAL: YOU MUST INCLUDE ALL 4 POSITIONS IN THE WORK EXPERIENCE SECTION.
                     
+                    POSITION 1 (TAILOR THIS):
+                    - DABOUQ TRADING CO | 2022 - PRESENT
+                    - Role: E-commerce Performance Marketing Manager
+                    - Requirements: 10-12 detailed points, 1. 2. 3. numbering, Max 3500 chars.
+
+                    POSITION 2 (DO NOT EDIT):
+                    - SHIP HERO | 2021 - 2022
+                    - Copy all bullet points exactly from the source resume.
+
+                    POSITION 3 (DO NOT EDIT):
+                    - SPELENZO | 2013 - 2021
+                    - Copy all bullet points exactly from the source resume.
+
+                    POSITION 4 (DO NOT EDIT):
+                    - CITI BANK | 2006 - 2013
+                    - Copy all bullet points exactly from the source resume.
+
+                    MANDATORY SEQUENCE:
+                    • ABOUT MYSELF > • STRATEGIC COMPETENCIES > • WORK EXPERIENCE (ALL 4 ABOVE) > • SKILLS > • EDUCATION > • LANGUAGES.
+
                     No markdown. No contact info. Start with '• ABOUT MYSELF'.
                     RESUME SOURCE: {res_text}
                     """
@@ -128,15 +128,15 @@ with tab1:
                         scores = [int(s.strip()) for s in scr.text.split(',') if s.strip().isdigit()]
                         sm, sa = scores[0], scores[1]
                     except:
-                        st.info("⚠️ Score bypass active. PDF is ready.")
+                        st.info("⚠️ Score bypass active. Download PDF below.")
 
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    st.success("Resume Complete with Absolute Date Integrity.")
+                    st.success("Resume Complete with All Positions and Dates.")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
-                    st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="background-color: white; padding: 40px; border: 1px solid black; color: black;">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
@@ -147,7 +147,6 @@ with tab2:
         st.dataframe(logs, use_container_width=True, hide_index=True)
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
-            # UNIQUE KEYS FIXED: Added str(row['id']) directly
             with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
-                st.download_button(label="📥 PDF", data=generate_styled_pdf(row["tailored_resume"], row['company']), file_name=f"{row['company']}.pdf", key=f"dl_btn_{row['id']}")
-                st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
+                st.download_button(label="📥 PDF", data=generate_styled_pdf(row["tailored_resume"], row['company']), file_name=f"{row['company']}.pdf", key=f"hist_dl_{row['id']}")
+                st.markdown(f'<div style="background-color: white; padding: 40px; border: 1px solid black; color: black;">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
