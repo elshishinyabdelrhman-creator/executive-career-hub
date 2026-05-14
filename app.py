@@ -50,35 +50,39 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI Styling (THE FINAL VISIBILITY FIX) ---
+# --- UI Styling (V8.7 AGGRESSIVE THEME BYPASS) ---
 def apply_executive_css():
     st.markdown("""
         <style>
-        .main { background-color: #0E1117 !important; }
-        
-        /* TARGETING THE BLOCK AND EVERY POSSIBLE TEXT ELEMENT INSIDE IT */
-        .resume-block, .resume-block div, .resume-block p, .resume-block span {
-            background-color: #FFFFFF !important; 
-            color: #000000 !important; 
+        /* Force dark background for the overall app */
+        .stApp { background-color: #0E1117 !important; }
+
+        /* THE "PAPER" BLOCK - FORCED WHITE BACKGROUND */
+        #resume-paper-root {
+            background-color: #FFFFFF !important;
+            padding: 50px !important;
+            border-radius: 8px !important;
+            border: 1px solid #DDDDDD !important;
+            margin: 20px 0px !important;
+            box-shadow: 0px 10px 25px rgba(0,0,0,0.5) !important;
+        }
+
+        /* THE "BLACK TEXT" ENFORCER - TARGETS ALL SUB-ELEMENTS */
+        #resume-paper-root, 
+        #resume-paper-root * {
+            color: #000000 !important;
             -webkit-text-fill-color: #000000 !important;
+            fill: #000000 !important;
             font-family: 'Arial', sans-serif !important;
             line-height: 1.6 !important;
-            opacity: 1 !important;
-            visibility: visible !important;
+            font-size: 1.05rem !important;
         }
 
-        .resume-block {
-            border: 2px solid #FFFFFF !important;
-            padding: 40px !important; 
-            border-radius: 5px !important; 
-            box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
-            margin-bottom: 20px;
-        }
-
-        /* Metric/Sidebar labels remain white for contrast */
+        /* Sidebar and Metric Labels (Stay White) */
         [data-testid="stMetricValue"] { color: #00FF00 !important; }
         .stMarkdown, label, p, h1, h2, h3 { color: #FFFFFF; }
         
+        /* Secondary buttons (Delete) */
         .stButton>button[kind="secondary"] { color: #FF4B4B !important; border-color: #FF4B4B !important; }
         </style>
     """, unsafe_allow_html=True)
@@ -113,7 +117,7 @@ with tab1:
             with st.spinner("Processing..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nThis text is now forced to be black."
+                        tailored_res = "• ABOUT MYSELF\nThis text is strictly forced to BLACK via ID selector."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
@@ -136,12 +140,15 @@ with tab1:
                     
                     st.success("Generated!")
                     sc1, sc2 = st.columns(2)
-                    sc1.metric("Match", f"{sm}%")
-                    sc2.metric("ATS", f"{sa}%")
+                    sc1.metric("Match Score", f"{sm}%")
+                    sc2.metric("ATS Score", f"{sa}%")
 
                     pdf = generate_styled_pdf(tailored_res, company)
                     st.download_button("📥 Download PDF", data=pdf, file_name=f"{company}_Resume.pdf", mime="application/pdf")
-                    st.markdown(f'<div class="resume-block"><div>{tailored_res}</div></div>', unsafe_allow_html=True)
+                    
+                    # --- WRAPPED IN UNIQUE ID ---
+                    st.markdown(f'<div id="resume-paper-root"><div>{tailored_res}</div></div>', unsafe_allow_html=True)
+                    
                 except Exception as e:
                     st.error(f"Error: {e}")
 
@@ -160,4 +167,5 @@ with tab2:
                     c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
                     conn.commit()
                     st.rerun()
-            st.markdown(f'<div class="resume-block"><div>{row["tailored_resume"]}</div></div>', unsafe_allow_html=True)
+            # --- WRAPPED IN UNIQUE ID ---
+            st.markdown(f'<div id="resume-paper-root"><div>{row["tailored_resume"]}</div></div>', unsafe_allow_html=True)
