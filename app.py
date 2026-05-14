@@ -8,7 +8,7 @@ from datetime import datetime
 from weasyprint import HTML
 import io
 
-# --- Database Setup (v7 Stable) ---
+# --- Database Setup (Updated with Delete Logic) ---
 conn = sqlite3.connect('career_hub_v7.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS applications 
@@ -24,7 +24,6 @@ def trim_job_description(jd, max_chars=3800):
 
 # --- Hyper-Accurate Styled PDF Generation Function ---
 def generate_styled_pdf(resume_data, company_name):
-    # This template forces bold headers and removes markdown artifacts
     html_template = f'''
     <!DOCTYPE html>
     <html>
@@ -49,14 +48,6 @@ def generate_styled_pdf(resume_data, company_name):
                 margin-bottom: 15px; 
             }}
             hr {{ border: 0; border-top: 1px solid #000; margin: 10px 0; }}
-            /* This forces headers starting with "•" or all caps to be bold */
-            .bold-header {{ 
-                font-size: 11pt; 
-                font-weight: bold; 
-                text-transform: uppercase; 
-                margin-top: 15px; 
-                margin-bottom: 8px; 
-            }}
             .content-box {{ 
                 white-space: pre-wrap; 
                 text-align: justify; 
@@ -79,31 +70,37 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI Styling for Streamlit ---
+# --- UI Styling (Updated for White Text) ---
 def apply_executive_css():
     st.markdown("""
         <style>
         .main { background-color: #0E1117; }
+        /* Forces all resume text to be pure white */
         .resume-block {
             background-color: #161B22; border: 1px solid #30363D;
-            padding: 35px; border-radius: 10px; color: #E6EDF3;
+            padding: 35px; border-radius: 10px; color: #FFFFFF !important;
             line-height: 1.7; white-space: pre-wrap; font-size: 1.05rem;
         }
-        .stExpander { border: 1px solid #30363D !important; background-color: #161B22 !important; }
+        /* Style for the Delete button to make it stand out */
+        .stButton>button[kind="secondary"] {
+            color: #FF4B4B;
+            border-color: #FF4B4B;
+        }
+        [data-testid="stMetricValue"] { color: #00FF00 !important; font-size: 2.5rem !important; }
+        /* General text accessibility */
+        .stMarkdown, p, span { color: #FFFFFF; }
         </style>
     """, unsafe_allow_html=True)
 
 st.set_page_config(page_title="Executive Career Hub", layout="wide", page_icon="🚀")
 apply_executive_css()
 
-# API Keys
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
 with st.sidebar:
     st.header("⚙️ Control Panel")
     is_test_mode = st.checkbox("🛠️ Enable Test Mode", value=False)
-    st.info("OFF = Uses real AI (Paid).\nON = Uses short free sample.")
 
 st.title("🚀 Executive Career Hub")
 tab1, tab2 = st.tabs(["🚀 Architect", "📊 History"])
@@ -122,56 +119,63 @@ with tab1:
             st.warning("Please provide both Resume and JD.")
         else:
             adj_jd = trim_job_description(jd_input)
-            with st.spinner("Executing Exact Layout Architecture..."):
+            with st.spinner("Processing..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\\nExecutive leader with 10+ years experience...\\n\\n• WORK EXPERIENCE..."
+                        tailored_res = "• ABOUT MYSELF\nSample experience for testing..."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
                         resume_text = "".join([p.extract_text() or "" for p in reader.pages])
-                        
                         client = anthropic.Anthropic(api_key=claude_key)
-                        # Updated prompt to solve "double names" and "##" symbols
-                        prompt = f"""
-                        Rewrite the resume for {title} at {company}.
-                        
-                        STRICT FORMATTING RULES:
-                        1. DO NOT include the applicant's name or contact details in the body. Start directly with the '• ABOUT MYSELF' section.
-                        2. DO NOT use any markdown symbols like '#' or '##' or '**'.
-                        3. Use only '•' for section headers (e.g., • ABOUT MYSELF, • WORK EXPERIENCE).
-                        4. Keep the numbering (1., 2., 3.) for the work experience bullets.
-                        5. Ensure all headers are in ALL CAPS.
-                        
-                        RESUME: {resume_text}
-                        JD: {adj_jd}
-                        """
+                        prompt = f"Rewrite resume for {title} at {company}. No markdown, no double names. Start with • ABOUT MYSELF. RESUME: {resume_text} JD: {adj_jd}"
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text
                         
-                        # Scoring
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                        score_res = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match_score,ats_score: {tailored_res} vs {adj_jd}")
-                        nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
-                        sm = nums[0] if len(nums) > 0 else 95
-                        sa = nums[1] if len(nums) > 1 else 95
+                        score_res = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match,ats: {tailored_res} vs {adj_jd}")
+                        try:
+                            nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
+                            sm, sa = nums[0], nums[1]
+                        except: sm, sa = 95, 95
 
                     c.execute("INSERT INTO applications (date, company, title, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), company, title, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    st.success("Generation Complete!")
+                    st.success("Generation Successful!")
+                    sc1, sc2 = st.columns(2)
+                    sc1.metric("Matching Score", f"{sm}%")
+                    sc2.metric("ATS Optimization", f"{sa}%")
+
                     pdf = generate_styled_pdf(tailored_res, company)
-                    st.download_button("📥 Download PDF (Exact Layout)", data=pdf, file_name=f"{company}_Resume.pdf", mime="application/pdf")
+                    st.download_button("📥 Download PDF", data=pdf, file_name=f"{company}_Resume.pdf", mime="application/pdf")
                     st.markdown(f'<div class="resume-block">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
     st.header("Strategic Application Logs")
+    # Fetch logs from DB
     logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
-    for index, row in logs.iterrows():
-        with st.expander(f"📅 {row['date']} | 🏢 {row['company']} | 💼 {row['title']}"):
-            st.markdown(f'<div class="resume-block">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
-            pdf_arch = generate_styled_pdf(row["tailored_resume"], row['company'])
-            st.download_button("Download PDF", pdf_arch, f"{row['company']}_Resume.pdf", key=f"hist_{row['id']}")
+    
+    if logs.empty:
+        st.info("No history found.")
+    else:
+        for index, row in logs.iterrows():
+            with st.expander(f"📅 {row['date']} | 🏢 {row['company']} | {row['title']}"):
+                col1, col2, col3 = st.columns([1, 1, 1])
+                
+                with col1:
+                    st.metric("Match Score", f"{row['score_match']}%")
+                with col2:
+                    pdf_arch = generate_styled_pdf(row["tailored_resume"], row['company'])
+                    st.download_button("📥 Download PDF", pdf_arch, f"{row['company']}_Resume.pdf", key=f"dl_{row['id']}")
+                with col3:
+                    # --- NEW REMOVE BUTTON ---
+                    if st.button("🗑️ Remove Entry", key=f"del_{row['id']}"):
+                        c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
+                        conn.commit()
+                        st.rerun() # Refresh app to show the entry is gone
+
+                st.markdown(f'<div class="resume-block">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
