@@ -25,15 +25,11 @@ c = conn.cursor()
 
 # --- REFINED CLEANING ENGINE ---
 def clean_resume_text(text):
-    # Remove Markdown headers and bolding
     text = re.sub(r'#+', '', text)
     text = re.sub(r'\*(?!\s*\d\.)', '', text)
-    
-    # Hard Filter for Header Duplication
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:", "Email:"]
     lines = text.split('\n')
     filtered = [line for line in lines if not any(f.lower() in line.lower() for f in forbidden)]
-    
     return "\n".join(filtered).strip()
 
 def generate_styled_pdf(resume_data, company_name):
@@ -80,7 +76,6 @@ def apply_executive_css():
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 apply_executive_css()
 
-# API Keys
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
@@ -97,58 +92,48 @@ with tab1:
 
     if st.button("✨ GENERATE & SAVE"):
         if not up_file or not jd_input:
-            st.warning("All fields are mandatory.")
+            st.warning("Inputs required.")
         else:
-            with st.spinner("Prioritizing Skills and Experience..."):
+            with st.spinner("Processing (Score bypass active if quota full)..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # UPDATED COMMAND: FORCING THE SKILLS SECTION
+                    # 1. TAILOR CONTENT (Claude)
                     prompt = f"""
                     Rewrite the resume for {role} at {comp}.
-                    
-                    MANDATORY SECTIONS (DO NOT SKIP ANY):
-                    1. • ABOUT MYSELF
-                    2. • STRATEGIC COMPETENCIES
-                    3. • WORK EXPERIENCE (Current experience focus, max 3500 chars, use 1., 2., 3. numbering)
-                    4. • SKILLS (Extract technical and hard skills from the JD: {jd_input})
-                    5. • EDUCATION & TRAINING
-                    6. • LANGUAGE SKILLS (Arabic, English, German, French)
-                    
-                    RULES: No markdown. No contact info. Start with '• ABOUT MYSELF'.
-                    RESUME DATA: {res_text}
+                    SECTIONS: • ABOUT MYSELF, • STRATEGIC COMPETENCIES, • WORK EXPERIENCE (Current focus, max 3500 chars, numbering 1., 2., 3.), • SKILLS (Extracted from JD), • EDUCATION & TRAINING, • LANGUAGE SKILLS.
+                    No markdown. No contact info. Start with '• ABOUT MYSELF'.
+                    RESUME: {res_text} JD: {jd_input}
                     """
-                    
                     resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                     tailored_res = clean_resume_text(resp.content[0].text)
                     
-                    # Double Check for Skills section presence
-                    if "• SKILLS" not in tailored_res:
-                        tailored_res += "\n\n• SKILLS\nTailored skills extraction in progress..."
-
-                    # Scoring
-                    gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                    scr = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match,ats: {tailored_res}")
+                    # 2. SCORING ENGINE (With Quota Error Handling)
+                    sm, sa = 0, 0
                     try:
+                        gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
+                        scr = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match,ats: {tailored_res}")
                         scores = [int(s.strip()) for s in scr.text.split(',') if s.strip().isdigit()]
                         sm, sa = scores[0], scores[1]
-                    except: sm, sa = 92, 94
+                    except Exception:
+                        st.info("⚠️ Score service busy/limited. Saving resume without match scores.")
 
+                    # 3. SAVE & SHOW
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    st.success(f"Archived! Match: {sm}% | ATS: {sa}%")
+                    st.success("Resume Archived Successfully.")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                     st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Critical Error: {e}")
 
 with tab2:
     st.header("📊 History Archive")
-    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role', score_match as 'Match %' FROM applications ORDER BY id DESC", conn)
+    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role' FROM applications ORDER BY id DESC", conn)
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
         st.divider()
