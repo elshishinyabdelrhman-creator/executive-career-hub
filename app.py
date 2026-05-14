@@ -54,24 +54,23 @@ def generate_styled_pdf(resume_data, company_name):
 def apply_executive_css():
     st.markdown("""
         <style>
-        .stApp { background-color: #FFFFFF !important; }
-        .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div {
+        .stApp {{ background-color: #FFFFFF !important; }}
+        .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div {{
             color: #000000 !important;
             -webkit-text-fill-color: #000000 !important;
-        }
-        .paper-container {
+        }}
+        .paper-container {{
             background-color: #FFFFFF !important;
             padding: 40px !important;
             border: 2px solid #000000 !important;
             margin: 20px 0px !important;
-        }
+        }}
         </style>
     """, unsafe_allow_html=True)
 
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 apply_executive_css()
 
-# API Keys
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
@@ -87,41 +86,43 @@ with tab1:
     with col_a:
         comp = st.text_input("Company Name")
         role = st.text_input("Role Title")
-        jd = st.text_area("Paste Full JD", height=200)
+        jd_input = st.text_area("Paste Full JD", height=200)
     with col_b:
         up_file = st.file_uploader("Upload Master Resume", type="pdf")
 
     if st.button("✨ GENERATE & SAVE"):
-        if not up_file or not jd:
+        if not up_file or not jd_input:
             st.warning("Please provide data.")
         else:
-            with st.spinner("Processing..."):
+            with st.spinner("Re-structuring Profile..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
                     client = anthropic.Anthropic(api_key=claude_key)
-                    # UPDATED PROMPT TO INCLUDE DYNAMIC SKILLS SECTION
+                    # UPDATED PROMPT: Explicitly protecting Education and Languages
                     prompt = f"""
-                    Rewrite the resume for {role} at {comp}.
+                    Rewrite the resume for {role} at {comp}. 
                     
-                    STRUCTURE:
+                    You MUST include all the following sections in this exact order:
                     1. • ABOUT MYSELF
-                    2. • STRATEGIC COMPETENCIES (Focus on leadership and strategy)
-                    3. • WORK EXPERIENCE (Maintain 1., 2., 3. numbering)
-                    4. • SKILLS (Extract technical tools, software, and specific hard skills from the JD below)
+                    2. • STRATEGIC COMPETENCIES
+                    3. • WORK EXPERIENCE
+                    4. • SKILLS (Technical/Hard skills specifically extracted from the JD below)
+                    5. • EDUCATION & TRAINING (From the original resume)
+                    6. • LANGUAGE SKILLS (From the original resume)
                     
                     STRICT RULES:
+                    - Do NOT skip the Education or Language sections.
                     - Start directly with '• ABOUT MYSELF'.
                     - No markdown like '##' or '**'.
-                    - Ensure the SKILLS section is a comma-separated list or brief bullets.
                     
-                    RESUME: {res_text}
-                    JD: {jd}
+                    RESUME CONTENT: {res_text}
+                    JOB DESCRIPTION: {jd_input}
                     """
                     
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nTesting...\n\n• WORK EXPERIENCE\n1. Built app...\n\n• SKILLS\nPython, Streamlit, Anthropic API, SQL"
+                        tailored_res = "• ABOUT MYSELF\nTesting...\n\n• SKILLS\nAPI, Python\n\n• EDUCATION & TRAINING\nBachelor of Science\n\n• LANGUAGE SKILLS\nArabic, English"
                         sm, sa = 98, 99
                     else:
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
@@ -129,9 +130,9 @@ with tab1:
                         sm, sa = 95, 96 
 
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                              (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), comp, role, jd, tailored_res, sm, sa))
+                              (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), comp, role, jd_input, tailored_res, sm, sa))
                     conn.commit()
-                    st.success("Success! Skills Section added.")
+                    st.success("Resume built with all sections preserved!")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                     st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
@@ -140,7 +141,6 @@ with tab1:
 with tab2:
     st.header("📊 Strategic Application Archive")
     logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role' FROM applications ORDER BY id DESC", conn)
-    
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
         st.divider()
