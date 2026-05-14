@@ -8,38 +8,30 @@ from datetime import datetime
 from weasyprint import HTML
 import io
 
-# --- DATABASE RECOVERY & MIGRATION LOGIC ---
+# --- DATABASE SETUP & MIGRATION ---
 def migrate_data():
-    # Connect to the new database
     new_conn = sqlite3.connect('career_hub_v9.db', check_same_thread=False)
     new_c = new_conn.cursor()
     new_c.execute('''CREATE TABLE IF NOT EXISTS applications 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
                   role TEXT, raw_jd TEXT, tailored_resume TEXT, 
                   score_match INTEGER, score_ats INTEGER)''')
-    
     try:
-        # Check if old data exists in v7
         old_conn = sqlite3.connect('career_hub_v7.db', check_same_thread=False)
         old_logs = pd.read_sql_query("SELECT * FROM applications", old_conn)
-        
-        # Move old data to new table if new table is empty
         check_empty = new_c.execute("SELECT count(*) FROM applications").fetchone()[0]
         if check_empty == 0 and not old_logs.empty:
             for _, row in old_logs.iterrows():
-                # Map old 'title' to new 'role' and 'raw_jd'
                 new_c.execute('''INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) 
                                  VALUES (?, ?, ?, ?, ?, ?, ?)''', 
                               (row['date'], row['company'], row['title'], row['raw_jd'], row['tailored_resume'], row['score_match'], row['score_ats']))
             new_conn.commit()
-    except Exception:
-        pass # No old database found or already migrated
+    except Exception: pass
     return new_conn
 
 conn = migrate_data()
 c = conn.cursor()
 
-# --- Utility Functions ---
 def generate_styled_pdf(resume_data, company_name):
     html_template = f'''
     <!DOCTYPE html>
@@ -70,6 +62,7 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
+# --- UI STYLING (V9.4: CENTER ALIGNMENT FIX) ---
 def apply_executive_css():
     st.markdown("""
         <style>
@@ -78,6 +71,13 @@ def apply_executive_css():
             color: #000000 !important;
             -webkit-text-fill-color: #000000 !important;
         }
+        
+        /* CENTER ALIGNMENT FOR DATAFRAME CELLS */
+        [data-testid="stTable"] td, [data-testid="stTable"] th, 
+        [data-testid="stDataFrame"] td, [data-testid="stDataFrame"] th {
+            text-align: center !important;
+        }
+
         .paper-container {
             background-color: #FFFFFF !important;
             padding: 40px !important;
@@ -90,7 +90,6 @@ def apply_executive_css():
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 apply_executive_css()
 
-# API Keys
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
@@ -123,7 +122,7 @@ with tab1:
                         reader = PdfReader(up_file)
                         res_text = "".join([p.extract_text() or "" for p in reader.pages])
                         client = anthropic.Anthropic(api_key=claude_key)
-                        prompt = f"Rewrite resume for {role} at {comp}. Start with • ABOUT MYSELF. RESUME: {res_text} JD: {jd}"
+                        prompt = f"Rewrite resume for {role} at {comp}. No markdown. Start with • ABOUT MYSELF. RESUME: {res_text} JD: {jd}"
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text
                         sm, sa = 95, 96 
@@ -132,23 +131,31 @@ with tab1:
                               (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), comp, role, jd, tailored_res, sm, sa))
                     conn.commit()
                     st.success("Saved to Archive!")
-                    st.metric("Match Score", f"{sm}%")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
     st.header("📊 Strategic Application Archive")
-    # Fetching with Serial (#) and full details
     logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role' FROM applications ORDER BY id DESC", conn)
     
     if logs.empty:
-        st.info("Archive is currently empty. Generate a resume to start your history.")
+        st.info("Archive is empty.")
     else:
-        st.dataframe(logs, use_container_width=True, hide_index=True)
+        # Using column config to enforce center alignment via Streamlit's API
+        st.dataframe(
+            logs, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "#": st.column_config.Column(width="small", help="Serial Number"),
+                "Applied At": st.column_config.Column(width="medium"),
+                "Company": st.column_config.Column(width="medium"),
+                "Role": st.column_config.Column(width="medium"),
+            }
+        )
         st.divider()
         
-        # Details section for individual entry management
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
             with st.expander(f"Entry #{row['id']} | {row['company']} | {row['role']}"):
@@ -162,7 +169,6 @@ with tab2:
                         c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
                         conn.commit()
                         st.rerun()
-                
                 st.write("**Job Description:**")
                 st.caption(row['raw_jd'])
                 st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
