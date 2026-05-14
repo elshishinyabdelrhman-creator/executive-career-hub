@@ -21,7 +21,6 @@ def trim_job_description(jd, max_chars=3800):
     return jd[:1800] + "\n\n[...SYSTEM: OPTIMIZED...]\n\n" + jd[-1800:]
 
 def generate_styled_pdf(resume_data, company_name):
-    # PDF ALWAYS STAYS PROFESSIONAL: BLACK TEXT ON WHITE
     html_template = f'''
     <!DOCTYPE html>
     <html>
@@ -33,7 +32,6 @@ def generate_styled_pdf(resume_data, company_name):
             .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 15px; }}
             hr {{ border: 0; border-top: 1px solid #000; margin: 10px 0; }}
             .content-box {{ white-space: pre-wrap; text-align: justify; color: #000000 !important; }}
-            * {{ color: #000000 !important; }}
         </style>
     </head>
     <body>
@@ -52,33 +50,37 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI Styling (THE FINAL HIGH-CONTRAST FIX) ---
+# --- UI Styling (THE ABSOLUTE FINAL WHITE/BLACK FIX) ---
 def apply_executive_css():
     st.markdown("""
         <style>
+        /* Overall App Theme */
         .stApp { background-color: #0E1117 !important; }
         
-        /* THE VISIBILITY FIX: A Terminal-style box (Green text on Black) */
-        /* This is impossible to be "white-on-white" */
-        .resume-display-box {
-            background-color: #000000 !important;
-            color: #00FF00 !important;
-            padding: 30px !important;
-            border: 2px solid #00FF00 !important;
-            border-radius: 10px !important;
-            font-family: 'Courier New', monospace !important;
-            line-height: 1.5 !important;
-            white-space: pre-wrap !important;
-            margin-top: 20px !important;
-        }
-        
-        .resume-display-box * {
-            color: #00FF00 !important;
-            -webkit-text-fill-color: #00FF00 !important;
+        /* The Wrapper for the White Paper */
+        .paper-container {
+            background-color: #FFFFFF !important;
+            padding: 45px !important;
+            border-radius: 2px !important;
+            border: 1px solid #CCCCCC !important;
+            margin: 25px 0px !important;
+            box-shadow: 0px 5px 15px rgba(0,0,0,0.5) !important;
         }
 
-        [data-testid="stMetricValue"] { color: #FFFFFF !important; }
-        label, .stMarkdown p, h1, h2, h3 { color: #FFFFFF !important; }
+        /* Forcing Black Text on EVERYTHING inside that paper */
+        .paper-container, .paper-container * {
+            color: #000000 !important;
+            background-color: #FFFFFF !important;
+            -webkit-text-fill-color: #000000 !important;
+            font-family: 'Arial', sans-serif !important;
+            line-height: 1.6 !important;
+        }
+
+        /* Labels and Metrics in the Sidebar stay White */
+        [data-testid="stMetricValue"] { color: #00FF00 !important; }
+        label, p, h1, h2, h3 { color: #FFFFFF; }
+        
+        /* Remove Button Style */
         .stButton>button[kind="secondary"] { color: #FF4B4B !important; border-color: #FF4B4B !important; }
         </style>
     """, unsafe_allow_html=True)
@@ -99,39 +101,38 @@ tab1, tab2 = st.tabs(["🚀 Architect", "📊 History"])
 with tab1:
     col_a, col_b = st.columns([2, 1])
     with col_a:
-        company = st.text_input("Company")
-        title = st.text_input("Role")
-        jd_input = st.text_area("Paste JD", height=200)
+        comp = st.text_input("Company Name")
+        role = st.text_input("Role Title")
+        jd = st.text_area("Paste JD", height=200)
     with col_b:
-        uploaded_file = st.file_uploader("Upload Master Resume", type="pdf")
+        up_file = st.file_uploader("Upload Master Resume", type="pdf")
 
     if st.button("✨ GENERATE FULL RESUME"):
-        if not uploaded_file or not jd_input:
-            st.warning("Input missing.")
+        if not up_file or not jd:
+            st.warning("Missing input.")
         else:
-            adj_jd = trim_job_description(jd_input)
-            with st.spinner("Processing..."):
+            with st.spinner("Executing Architecture..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nVisibility Test: If you can read this green text, it works!"
+                        tailored_res = "• ABOUT MYSELF\nThis text is FORCED BLACK on WHITE background."
                         sm, sa = 98, 99
                     else:
-                        reader = PdfReader(uploaded_file)
-                        resume_text = "".join([p.extract_text() or "" for p in reader.pages])
+                        reader = PdfReader(up_file)
+                        res_text = "".join([p.extract_text() or "" for p in reader.pages])
                         client = anthropic.Anthropic(api_key=claude_key)
-                        prompt = f"Rewrite resume for {title} at {company}. No markdown like ##. Start with • ABOUT MYSELF. RESUME: {resume_text} JD: {adj_jd}"
+                        prompt = f"Rewrite resume for {role} at {comp}. No markdown. Start with • ABOUT MYSELF. RESUME: {res_text} JD: {jd}"
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text
                         
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                        score_res = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match,ats: {tailored_res} vs {adj_jd}")
+                        scr = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return: match,ats. Data: {tailored_res}")
                         try:
-                            nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
+                            nums = [int(s) for s in scr.text.split(',') if s.strip().isdigit()]
                             sm, sa = nums[0], nums[1]
                         except: sm, sa = 95, 95
 
                     c.execute("INSERT INTO applications (date, company, title, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                              (datetime.now().strftime("%Y-%m-%d %H:%M"), company, title, jd_input, tailored_res, sm, sa))
+                              (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd, tailored_res, sm, sa))
                     conn.commit()
                     
                     st.success("Generated!")
@@ -139,27 +140,41 @@ with tab1:
                     sc1.metric("Match Score", f"{sm}%")
                     sc2.metric("ATS Score", f"{sa}%")
 
-                    pdf = generate_styled_pdf(tailored_res, company)
-                    st.download_button("📥 Download PDF", data=pdf, file_name=f"{company}_Resume.pdf", mime="application/pdf")
+                    pdf = generate_styled_pdf(tailored_res, comp)
+                    st.download_button("📥 Download PDF", data=pdf, file_name=f"{comp}_Resume.pdf", mime="application/pdf")
                     
-                    # Displaying in high-contrast box
-                    st.markdown(f'<div class="resume-display-box">{tailored_res}</div>', unsafe_allow_html=True)
+                    # --- FORCED BLACK ON WHITE INJECTION ---
+                    st.markdown(f'''
+                        <div class="paper-container">
+                            <div style="color: #000000 !important; background-color: #FFFFFF !important;">
+                                {tailored_res}
+                            </div>
+                        </div>
+                    ''', unsafe_allow_html=True)
                     
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
+    st.header("Strategic History")
     logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
     for index, row in logs.iterrows():
         with st.expander(f"📅 {row['date']} | 🏢 {row['company']}"):
             col1, col2, col3 = st.columns([1, 1, 1])
             with col1: st.metric("Score", f"{row['score_match']}%")
             with col2:
-                pdf_arch = generate_styled_pdf(row["tailored_resume"], row['company'])
-                st.download_button("📥 Download PDF", pdf_arch, f"{row['company']}.pdf", key=f"hdl_{row['id']}")
+                pdf_h = generate_styled_pdf(row["tailored_resume"], row['company'])
+                st.download_button("📥 Download", pdf_h, f"{row['company']}.pdf", key=f"d_{row['id']}")
             with col3:
-                if st.button("🗑️ Remove", key=f"hdel_{row['id']}"):
+                if st.button("🗑️ Remove", key=f"r_{row['id']}"):
                     c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
                     conn.commit()
                     st.rerun()
-            st.markdown(f'<div class="resume-display-box">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
+            # --- FORCED BLACK ON WHITE INJECTION ---
+            st.markdown(f'''
+                <div class="paper-container">
+                    <div style="color: #000000 !important; background-color: #FFFFFF !important;">
+                        {row["tailored_resume"]}
+                    </div>
+                </div>
+            ''', unsafe_allow_html=True)
