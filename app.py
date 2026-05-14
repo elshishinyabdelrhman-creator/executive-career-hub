@@ -8,7 +8,7 @@ from datetime import datetime
 from weasyprint import HTML
 import io
 
-# --- Database Setup (Updated with Delete Logic) ---
+# --- Database Setup ---
 conn = sqlite3.connect('career_hub_v7.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS applications 
@@ -32,7 +32,7 @@ def generate_styled_pdf(resume_data, company_name):
             @page {{ size: A4; margin: 15mm 15mm; }}
             body {{ 
                 font-family: "Liberation Sans", Arial, sans-serif; 
-                color: #000; 
+                color: #000000; 
                 line-height: 1.4; 
                 font-size: 10pt; 
             }}
@@ -51,7 +51,10 @@ def generate_styled_pdf(resume_data, company_name):
             .content-box {{ 
                 white-space: pre-wrap; 
                 text-align: justify; 
+                font-weight: normal;
             }}
+            /* Ensuring all generated text in PDF is strictly black */
+            * {{ color: #000000 !important; }}
         </style>
     </head>
     <body>
@@ -70,25 +73,37 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI Styling (Updated for White Text) ---
+# --- UI Styling (Reset to Black Font on White Block) ---
 def apply_executive_css():
     st.markdown("""
         <style>
         .main { background-color: #0E1117; }
-        /* Forces all resume text to be pure white */
+        
+        /* Changed to black font on a light-grey/white background for maximum readability */
         .resume-block {
-            background-color: #161B22; border: 1px solid #30363D;
-            padding: 35px; border-radius: 10px; color: #FFFFFF !important;
-            line-height: 1.7; white-space: pre-wrap; font-size: 1.05rem;
+            background-color: #F8F9FA; 
+            border: 1px solid #DEE2E6;
+            padding: 35px; 
+            border-radius: 10px; 
+            color: #000000 !important;
+            line-height: 1.7; 
+            white-space: pre-wrap; 
+            font-size: 1.05rem;
+            font-family: 'Inter', sans-serif;
         }
-        /* Style for the Delete button to make it stand out */
+        
+        /* Metric Styling */
+        [data-testid="stMetricValue"] { color: #00FF00 !important; font-size: 2.5rem !important; }
+        
+        /* Delete Button Styling */
         .stButton>button[kind="secondary"] {
             color: #FF4B4B;
             border-color: #FF4B4B;
         }
-        [data-testid="stMetricValue"] { color: #00FF00 !important; font-size: 2.5rem !important; }
-        /* General text accessibility */
-        .stMarkdown, p, span { color: #FFFFFF; }
+        
+        /* Keep sidebar and general labels white for the dark theme */
+        .stMarkdown, label, p { color: #FFFFFF; }
+        .resume-block p, .resume-block span { color: #000000 !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -122,7 +137,7 @@ with tab1:
             with st.spinner("Processing..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nSample experience for testing..."
+                        tailored_res = "• ABOUT MYSELF\nBlack font test content..."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
@@ -156,7 +171,6 @@ with tab1:
 
 with tab2:
     st.header("Strategic Application Logs")
-    # Fetch logs from DB
     logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
     
     if logs.empty:
@@ -165,17 +179,15 @@ with tab2:
         for index, row in logs.iterrows():
             with st.expander(f"📅 {row['date']} | 🏢 {row['company']} | {row['title']}"):
                 col1, col2, col3 = st.columns([1, 1, 1])
-                
                 with col1:
                     st.metric("Match Score", f"{row['score_match']}%")
                 with col2:
                     pdf_arch = generate_styled_pdf(row["tailored_resume"], row['company'])
                     st.download_button("📥 Download PDF", pdf_arch, f"{row['company']}_Resume.pdf", key=f"dl_{row['id']}")
                 with col3:
-                    # --- NEW REMOVE BUTTON ---
                     if st.button("🗑️ Remove Entry", key=f"del_{row['id']}"):
                         c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
                         conn.commit()
-                        st.rerun() # Refresh app to show the entry is gone
+                        st.rerun()
 
                 st.markdown(f'<div class="resume-block">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
