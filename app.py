@@ -51,9 +51,7 @@ def generate_styled_pdf(resume_data, company_name):
             .content-box {{ 
                 white-space: pre-wrap; 
                 text-align: justify; 
-                font-weight: normal;
             }}
-            /* Ensuring all generated text in PDF is strictly black */
             * {{ color: #000000 !important; }}
         </style>
     </head>
@@ -73,37 +71,43 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI Styling (Reset to Black Font on White Block) ---
+# --- UI Styling (Fixes the White-on-White visibility issue) ---
 def apply_executive_css():
     st.markdown("""
         <style>
+        /* Main background remains dark for the executive look */
         .main { background-color: #0E1117; }
         
-        /* Changed to black font on a light-grey/white background for maximum readability */
+        /* The resume display block is now a paper-white background with black text */
         .resume-block {
-            background-color: #F8F9FA; 
-            border: 1px solid #DEE2E6;
-            padding: 35px; 
-            border-radius: 10px; 
+            background-color: #FFFFFF !important; 
+            border: 1px solid #DDDDDD;
+            padding: 40px; 
+            border-radius: 5px; 
             color: #000000 !important;
-            line-height: 1.7; 
+            line-height: 1.6; 
             white-space: pre-wrap; 
-            font-size: 1.05rem;
-            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            font-family: 'Arial', sans-serif;
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
         }
         
+        /* Ensures all text inside the white block is black */
+        .resume-block * {
+            color: #000000 !important;
+        }
+
         /* Metric Styling */
-        [data-testid="stMetricValue"] { color: #00FF00 !important; font-size: 2.5rem !important; }
+        [data-testid="stMetricValue"] { color: #00FF00 !important; }
         
-        /* Delete Button Styling */
+        /* General text (Sidebar/Titles) remains white for contrast */
+        .stMarkdown, label, p, h1, h2, h3 { color: #FFFFFF; }
+        
+        /* Style for the Remove button */
         .stButton>button[kind="secondary"] {
             color: #FF4B4B;
             border-color: #FF4B4B;
         }
-        
-        /* Keep sidebar and general labels white for the dark theme */
-        .stMarkdown, label, p { color: #FFFFFF; }
-        .resume-block p, .resume-block span { color: #000000 !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -137,18 +141,18 @@ with tab1:
             with st.spinner("Processing..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nBlack font test content..."
+                        tailored_res = "• ABOUT MYSELF\\nSample content for testing visibility..."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
                         resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                         client = anthropic.Anthropic(api_key=claude_key)
-                        prompt = f"Rewrite resume for {title} at {company}. No markdown, no double names. Start with • ABOUT MYSELF. RESUME: {resume_text} JD: {adj_jd}"
+                        prompt = f"Rewrite resume for {title} at {company}. No markdown like ##. Start with • ABOUT MYSELF. RESUME: {resume_text} JD: {adj_jd}"
                         resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text
                         
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                        score_res = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match,ats: {tailored_res} vs {adj_jd}")
+                        score_res = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return only: match,ats. Data: {tailored_res} vs {adj_jd}")
                         try:
                             nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
                             sm, sa = nums[0], nums[1]
@@ -158,7 +162,7 @@ with tab1:
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), company, title, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    st.success("Generation Successful!")
+                    st.success("Success!")
                     sc1, sc2 = st.columns(2)
                     sc1.metric("Matching Score", f"{sm}%")
                     sc2.metric("ATS Optimization", f"{sa}%")
@@ -172,22 +176,16 @@ with tab1:
 with tab2:
     st.header("Strategic Application Logs")
     logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
-    
-    if logs.empty:
-        st.info("No history found.")
-    else:
-        for index, row in logs.iterrows():
-            with st.expander(f"📅 {row['date']} | 🏢 {row['company']} | {row['title']}"):
-                col1, col2, col3 = st.columns([1, 1, 1])
-                with col1:
-                    st.metric("Match Score", f"{row['score_match']}%")
-                with col2:
-                    pdf_arch = generate_styled_pdf(row["tailored_resume"], row['company'])
-                    st.download_button("📥 Download PDF", pdf_arch, f"{row['company']}_Resume.pdf", key=f"dl_{row['id']}")
-                with col3:
-                    if st.button("🗑️ Remove Entry", key=f"del_{row['id']}"):
-                        c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
-                        conn.commit()
-                        st.rerun()
-
-                st.markdown(f'<div class="resume-block">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
+    for index, row in logs.iterrows():
+        with st.expander(f"📅 {row['date']} | 🏢 {row['company']} | {row['title']}"):
+            col1, col2, col3 = st.columns([1, 1, 1])
+            with col1: st.metric("Match Score", f"{row['score_match']}%")
+            with col2:
+                pdf_arch = generate_styled_pdf(row["tailored_resume"], row['company'])
+                st.download_button("📥 Download PDF", pdf_arch, f"{row['company']}_Resume.pdf", key=f"dl_{row['id']}")
+            with col3:
+                if st.button("🗑️ Remove Entry", key=f"del_{row['id']}"):
+                    c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
+                    conn.commit()
+                    st.rerun()
+            st.markdown(f'<div class="resume-block">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
