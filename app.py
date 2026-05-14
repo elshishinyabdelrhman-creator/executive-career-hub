@@ -38,13 +38,13 @@ apply_executive_css()
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
-# 2026 STABLE MODEL IDs
-# Use 'latest' to avoid the 404 versioning errors
-CLAUDE_MODEL = "claude-3-7-sonnet-latest" 
+# --- 2026 STABLE PRODUCTION MODEL IDs ---
+# Using the standard dateless format required for 2026
+CLAUDE_MODEL = "claude-sonnet-4-6" 
 GEMINI_MODEL = "gemini-1.5-flash"
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v6.3 | Claude 3.7 Sonnet (Writing) | Gemini (Scoring)")
+st.caption("v6.4 | Claude Sonnet 4.6 (Primary) | Database v6 Stable")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History"])
 
@@ -56,25 +56,25 @@ with tab1:
         job_desc = st.text_area("Paste Job Description", height=300)
     with col_b:
         uploaded_file = st.file_uploader("Upload Master Resume", type="pdf")
-        st.success("Claude Engine Ready (Paid Credits)")
+        st.success("Claude 4.6 Engine Ready")
 
     if st.button("✨ ARCHITECT COMPLETE RESUME"):
         if not uploaded_file or not job_desc:
             st.warning("Please upload a resume and job description.")
         else:
-            with st.spinner("Claude is architecting your executive resume..."):
+            with st.spinner("Claude 4.6 is architecting your resume..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
-                    # 1. ARCHITECT WITH CLAUDE (Using your credits)
+                    # 1. ARCHITECT WITH CLAUDE
                     claude_client = anthropic.Anthropic(api_key=claude_key)
                     
                     prompt = f"""
                     Act as an Executive Career Architect. Rewrite this resume for {title} at {company}.
-                    1. NO PLACEHOLDERS: Use zero asterisks (*). 
-                    2. CURRENT ROLE: 15 exhaustive achievement bullets focusing on P&L, ROI, and scale.
-                    3. SKILLS: Categorized 'Strategic Competencies' section with 20+ keywords.
+                    - NO PLACEHOLDERS: Use zero asterisks (*). 
+                    - IMPACT: 15 exhaustive achievement bullets focusing on P&L, ROI, and Saudi market scale.
+                    - SKILLS: Categorized 'Strategic Competencies' section with 20+ keywords.
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
 
@@ -85,35 +85,23 @@ with tab1:
                     )
                     tailored_content = resp.content[0].text.replace('*', '')
 
-                    # 2. SCORE WITH GEMINI (Free Tier)
-                    sm, sa = 0, 0
-                    try:
-                        gem_client = genai.Client(api_key=gemini_key)
-                        score_res = gem_client.models.generate_content(
-                            model=GEMINI_MODEL,
-                            contents=f"Return ONLY two numbers separated by a comma (Match, ATS): {tailored_content}"
-                        )
-                        nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
-                        sm, sa = nums[0], nums[1]
-                    except:
-                        pass # Silently fail scoring to avoid blocking the main result
-
-                    # 3. SAVE & DISPLAY
+                    # 2. SAVE & DISPLAY
                     c.execute("INSERT INTO applications (date, company, title, engine, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Claude 3.7", tailored_content, sm, sa))
+                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Claude 4.6", tailored_content, 0, 0))
                     conn.commit()
 
                     st.markdown("### 📝 Tailored Executive Document")
                     st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
                     
                 except Exception as e:
-                    st.error(f"Engine Error: {e}")
+                    st.error(f"Claude Engine Error: {e}")
+                    st.info("Ensure your Anthropic key has active credits and that the model ID is correct.")
 
 with tab2:
     import pandas as pd
     st.header("Strategic Tracking System")
     try:
-        history_df = pd.read_sql_query("SELECT date, company, title, engine, score_match, score_ats FROM applications ORDER BY date DESC", conn)
+        history_df = pd.read_sql_query("SELECT date, company, title, engine FROM applications ORDER BY date DESC", conn)
         st.dataframe(history_df, use_container_width=True)
     except:
-        st.info("No logs yet.")
+        st.info("No logs found in Database v6.")
