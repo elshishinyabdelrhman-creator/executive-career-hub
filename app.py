@@ -8,7 +8,7 @@ from weasyprint import HTML
 import io
 import re
 
-# --- DATABASE SETUP ---
+# --- 1. DATABASE SETUP ---
 def get_db_connection():
     conn = sqlite3.connect('career_hub_final_stable.db', check_same_thread=False)
     c = conn.cursor()
@@ -21,15 +21,16 @@ def get_db_connection():
 conn = get_db_connection()
 c = conn.cursor()
 
-# --- v12.9 CLEANING ENGINE (PROTECTS ALL DATES) ---
+# --- 2. CLEANING ENGINE (PROTECTS DATES) ---
 def clean_resume_text(text):
-    # Only remove AI hashtags. PROTECT ALL NUMBERS, DASHES, AND ASTERISKS.
+    # يحذف فقط علامات الهاشتاج الخاصة بالـ AI ويحمي الأرقام والتواريخ
     text = re.sub(r'#+', '', text)
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:"]
     lines = text.split('\n')
     filtered = [line for line in lines if not any(f.lower() in line.lower() for f in forbidden)]
     return "\n".join(filtered).strip()
 
+# --- 3. PDF GENERATOR ---
 def generate_styled_pdf(resume_data):
     clean_content = clean_resume_text(resume_data)
     html_template = f'''
@@ -38,7 +39,7 @@ def generate_styled_pdf(resume_data):
     <head>
         <style>
             @page {{ size: A4; margin: 15mm 15mm; }}
-            body {{ font-family: "Arial", sans-serif; color: #000; line-height: 1.45; font-size: 10.5pt; }}
+            body {{ font-family: "Arial", sans-serif; color: #000; line-height: 1.5; font-size: 10.5pt; }}
             .header {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }}
             .content {{ white-space: pre-wrap; text-align: justify; }}
         </style>
@@ -57,7 +58,8 @@ def generate_styled_pdf(resume_data):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-st.set_page_config(page_title="Executive Career Hub v12.9", layout="wide")
+# --- 4. APP INTERFACE ---
+st.set_page_config(page_title="Executive Career Hub", layout="wide")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
 tab1, tab2 = st.tabs(["🚀 Architect", "📊 History Archive"])
@@ -75,44 +77,42 @@ with tab1:
         if not up_file or not jd_input:
             st.warning("Please provide both Resume and JD.")
         else:
-            with st.spinner("Locking Historical Data..."):
+            with st.spinner("Generating Stable Tailored Resume..."):
                 try:
+                    # Read PDF
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
+                    
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # V12.9: ABSOLUTE DATA LOCK PROMPT
+                    # PROMPT: التعديل فقط على الأجزاء المطلوبة مع حماية التاريخ
                     prompt = f"""
                     Tailor this resume for {role} at {comp}. 
 
-                    CRITICAL - YOU MUST INCLUDE THESE EXACT HEADERS AND DATES:
-                    1. DABOUQ TRADING CO | 2022 - PRESENT
-                    2. SHIP HERO | 2021 - 2022
-                    3. SPELENZO | 2013 - 2021
-                    4. CITI BANK | 2006 - 2013
+                    STRICT REQUIREMENTS:
+                    1. FOR EVERY JOB: Keep the [Job Title] | [Company Name] | [Dates].
+                    2. PREVIOUS ROLES (Ship Hero, Spelenzo, Citi Bank): Do NOT change their content or dates. Copy them exactly.
+                    3. CURRENT ROLE (Dabouq): Rewrite with 10-12 high-impact points.
+                    4. DYNAMIC SECTIONS: Edit 'About Myself', 'Strategic Competencies', and 'Skills' to match the JD.
+                    5. SEQUENCE: About Myself > Strategic Competencies > Work Experience > Skills > Education > Languages.
 
-                    INSTRUCTIONS:
-                    - EDIT ONLY: 'About Myself', 'Strategic Competencies', 'Skills', and 'Dabouq' points (12 points).
-                    - LOCK ALL PAST JOBS: Copy headers and bullets for Ship Hero, Spelenzo, and Citi Bank exactly from source.
-                    - SEQUENCE: About Myself > Strategic Competencies > Work Experience > Skills > Education > Languages.
-
-                    Rules: No markdown. Start with '• ABOUT MYSELF'.
-                    SOURCE: {res_text}
+                    No markdown. Start with '• ABOUT MYSELF'.
+                    SOURCE RESUME: {res_text}
                     """
                     
-                    # USING THE MOST POWERFUL AND RELIABLE MODEL ID
                     resp = client.messages.create(
-                        model="claude-3-opus-20240229", 
+                        model="claude-3-5-sonnet-20240620", 
                         max_tokens=4000, 
                         messages=[{"role": "user", "content": prompt}]
                     )
                     tailored_res = resp.content[0].text
 
+                    # Save to DB
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume) VALUES (?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res))
                     conn.commit()
                     
-                    st.success("Resume Complete with Absolute Integrity.")
+                    st.success("Resume Optimized!")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res), f"{comp}_Resume.pdf")
                     st.markdown(f'<div style="background-color:white; color:black; padding:35px; border:2px solid #000;">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
@@ -126,5 +126,5 @@ with tab2:
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
             with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
-                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"v12_9_{row['id']}")
+                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"hist_btn_{row['id']}")
                 st.write(row["tailored_resume"])
