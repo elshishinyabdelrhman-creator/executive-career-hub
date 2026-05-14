@@ -38,12 +38,12 @@ apply_executive_css()
 
 active_api_key = st.secrets.get("GEMINI_API_KEY")
 
-# 2026 STABLE REPLACEMENT
-# gemini-3.1-flash-lite is the successor to 1.5-flash
+# 2026 STABLE PRODUCTION MODEL
+# Shorthand for the newly released Stable version
 MODEL_ID = "gemini-3.1-flash-lite" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v5.9 | Gemini 3.1 Flash-Lite | Free Tier Optimized")
+st.caption("v6.0 | Gemini 3.1 Stable Path | Free Tier Optimized")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History"])
 
@@ -63,12 +63,12 @@ with tab1:
         elif not uploaded_file or not job_desc:
             st.warning("All inputs required.")
         else:
-            with st.spinner(f"Architecting with {MODEL_ID}..."):
+            with st.spinner("Establishing Production Connection..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
-                    # FORCE PRODUCTION V1 ROUTE
+                    # CLIENT INITIALIZATION: Explicitly using the production 'v1' route
                     client = genai.Client(
                         api_key=active_api_key,
                         http_options={'api_version': 'v1'}
@@ -82,11 +82,18 @@ with tab1:
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
 
-                    # Execute generation
-                    response = client.models.generate_content(model=MODEL_ID, contents=prompt)
+                    # DYNAMIC ROUTING: If the shorthand fails, the system auto-tries the absolute path
+                    try:
+                        response = client.models.generate_content(model=MODEL_ID, contents=prompt)
+                    except Exception as route_err:
+                        if "404" in str(route_err):
+                            # Attempting the longhand 'models/' prefix which is sometimes required by the new v1 SDK
+                            response = client.models.generate_content(model=f"models/{MODEL_ID}", contents=prompt)
+                        else:
+                            raise route_err
+
                     tailored_content = response.text.replace('*', '').replace('#', '')
 
-                    # DB Logging (Simplified for safety)
                     c.execute("INSERT INTO applications (date, company, title, engine, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d"), company, title, "Gemini 3.1", tailored_content, 0, 0))
                     conn.commit()
@@ -95,7 +102,7 @@ with tab1:
                     st.markdown(f'<div class="resume-block">{tailored_content}</div>', unsafe_allow_html=True)
                     
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Critical System Error: {e}")
 
 with tab2:
     st.header("Strategic Tracking System")
