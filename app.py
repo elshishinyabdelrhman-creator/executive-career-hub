@@ -50,39 +50,41 @@ def generate_styled_pdf(resume_data, company_name):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# --- UI Styling (V8.7 AGGRESSIVE THEME BYPASS) ---
+# --- UI Styling (THE NUCLEAR OPTION FOR VISIBILITY) ---
 def apply_executive_css():
     st.markdown("""
         <style>
-        /* Force dark background for the overall app */
         .stApp { background-color: #0E1117 !important; }
+        
+        /* TARGETING EVERY SINGLE TEXT ELEMENT BY ATTRIBUTE */
+        [data-testid="stMarkdownContainer"] p, 
+        [data-testid="stMarkdownContainer"] span, 
+        [data-testid="stMarkdownContainer"] div {
+            color: inherit; /* Allow parent to control */
+        }
 
-        /* THE "PAPER" BLOCK - FORCED WHITE BACKGROUND */
-        #resume-paper-root {
+        /* THE PAPER BLOCK */
+        .resume-paper {
             background-color: #FFFFFF !important;
             padding: 50px !important;
-            border-radius: 8px !important;
-            border: 1px solid #DDDDDD !important;
+            border-radius: 4px !important;
+            border: 1px solid #000000 !important;
             margin: 20px 0px !important;
-            box-shadow: 0px 10px 25px rgba(0,0,0,0.5) !important;
+            /* FORCING BLACK TEXT AT THE HIGHEST LEVEL */
+            color: #000000 !important;
         }
 
-        /* THE "BLACK TEXT" ENFORCER - TARGETS ALL SUB-ELEMENTS */
-        #resume-paper-root, 
-        #resume-paper-root * {
+        /* INJECTING BLACK COLOR INTO ALL CHILDREN */
+        .resume-paper * {
             color: #000000 !important;
             -webkit-text-fill-color: #000000 !important;
-            fill: #000000 !important;
+            text-decoration: none !important;
             font-family: 'Arial', sans-serif !important;
-            line-height: 1.6 !important;
-            font-size: 1.05rem !important;
         }
 
-        /* Sidebar and Metric Labels (Stay White) */
         [data-testid="stMetricValue"] { color: #00FF00 !important; }
-        .stMarkdown, label, p, h1, h2, h3 { color: #FFFFFF; }
+        label, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { color: #FFFFFF !important; }
         
-        /* Secondary buttons (Delete) */
         .stButton>button[kind="secondary"] { color: #FF4B4B !important; border-color: #FF4B4B !important; }
         </style>
     """, unsafe_allow_html=True)
@@ -103,11 +105,11 @@ tab1, tab2 = st.tabs(["🚀 Architect", "📊 History"])
 with tab1:
     col_a, col_b = st.columns([2, 1])
     with col_a:
-        company = st.text_input("Company")
-        title = st.text_input("Role")
-        jd_input = st.text_area("Paste JD", height=250)
+        company = st.text_input("Company Name")
+        title = st.text_input("Role Title")
+        jd_input = st.text_area("Paste JD", height=200)
     with col_b:
-        uploaded_file = st.file_uploader("Upload PDF", type="pdf")
+        uploaded_file = st.file_uploader("Upload Master Resume", type="pdf")
 
     if st.button("✨ GENERATE FULL RESUME"):
         if not uploaded_file or not jd_input:
@@ -117,7 +119,7 @@ with tab1:
             with st.spinner("Processing..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "• ABOUT MYSELF\nThis text is strictly forced to BLACK via ID selector."
+                        tailored_res = "• ABOUT MYSELF\nThis full text is now FORCED to be black."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
@@ -146,14 +148,19 @@ with tab1:
                     pdf = generate_styled_pdf(tailored_res, company)
                     st.download_button("📥 Download PDF", data=pdf, file_name=f"{company}_Resume.pdf", mime="application/pdf")
                     
-                    # --- WRAPPED IN UNIQUE ID ---
-                    st.markdown(f'<div id="resume-paper-root"><div>{tailored_res}</div></div>', unsafe_allow_html=True)
+                    # --- THE NUCLEAR DISPLAY WRAPPER ---
+                    st.markdown(f'''
+                        <div class="resume-paper">
+                            <div style="color: black !important;">
+                                {tailored_res}
+                            </div>
+                        </div>
+                    ''', unsafe_allow_html=True)
                     
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
-    st.header("History")
     logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
     for index, row in logs.iterrows():
         with st.expander(f"📅 {row['date']} | 🏢 {row['company']}"):
@@ -167,5 +174,11 @@ with tab2:
                     c.execute("DELETE FROM applications WHERE id = ?", (row['id'],))
                     conn.commit()
                     st.rerun()
-            # --- WRAPPED IN UNIQUE ID ---
-            st.markdown(f'<div id="resume-paper-root"><div>{row["tailored_resume"]}</div></div>', unsafe_allow_html=True)
+            # --- THE NUCLEAR DISPLAY WRAPPER ---
+            st.markdown(f'''
+                <div class="resume-paper">
+                    <div style="color: black !important;">
+                        {row["tailored_resume"]}
+                    </div>
+                </div>
+            ''', unsafe_allow_html=True)
