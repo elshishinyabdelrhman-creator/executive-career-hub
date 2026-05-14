@@ -10,7 +10,7 @@ import re
 
 # --- DATABASE SETUP ---
 def get_db_connection():
-    conn = sqlite3.connect('career_hub_v12_5.db', check_same_thread=False)
+    conn = sqlite3.connect('career_hub_v12_6.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS applications 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
@@ -22,6 +22,7 @@ conn = get_db_connection()
 c = conn.cursor()
 
 def clean_resume_text(text):
+    # Only remove hashtags. Protect all numbers, dates, and dashes.
     text = re.sub(r'#+', '', text)
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:"]
     lines = text.split('\n')
@@ -55,7 +56,7 @@ def generate_styled_pdf(resume_data):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-st.set_page_config(page_title="Executive Career Hub v12.5", layout="wide")
+st.set_page_config(page_title="Executive Career Hub v12.6", layout="wide")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
 tab1, tab2 = st.tabs(["🚀 Architect", "📊 History Archive"])
@@ -71,41 +72,41 @@ with tab1:
 
     if st.button("✨ GENERATE FULL RESUME"):
         if not up_file or not jd_input:
-            st.warning("Missing required inputs.")
+            st.warning("All fields are required.")
         else:
-            with st.spinner("Locking Titles, Dates, and Expanding Current Role..."):
+            with st.spinner("Locking 100% of Career Data..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # V12.5: CORRECT MODEL ID + HARD-LOCKED TITLES/DATES
+                    # V12.6: THE "ZERO-REVISION" PROMPT
                     prompt = f"""
                     Rewrite the resume for {role} at {comp}. 
 
-                    CRITICAL: YOU MUST INCLUDE THESE EXACT HEADERS (JOB TITLE + COMPANY + DATE):
+                    CRITICAL: YOU MUST RENDER EVERY SINGLE JOB LISTED BELOW WITH ITS EXACT TITLE AND DATE.
                     
                     JOB 1: PERFORMANCE MARKETING MANAGER | DABOUQ TRADING CO | 2022 - PRESENT
-                    - Rewrite with 12 professional points. Use 1. to 12. numbering.
+                    - Rewrite with 12 points focused on margin-first ROI and GCC e-commerce.
                     
                     JOB 2: ACCOUNT MANAGER | SHIP HERO | 2021 - 2022
-                    - Copy content exactly from source. Do NOT omit this title or date.
+                    - Copy exactly from source. Header and Dates must be visible.
                     
                     JOB 3: SENIOR CONTENT & PARTNERSHIPS MANAGER | SPELENZO | 2013 - 2021
-                    - Copy content exactly from source. Do NOT omit this title or date.
+                    - Copy exactly from source. Header and Dates must be visible.
                     
                     JOB 4: RELATIONSHIP MANAGER | CITI BANK | 2006 - 2013
-                    - Copy content exactly from source. Do NOT omit this title or date.
+                    - Copy exactly from source. Header and Dates must be visible.
 
-                    MANDATORY SEQUENCE: • ABOUT MYSELF > • STRATEGIC COMPETENCIES > • WORK EXPERIENCE > • SKILLS > • EDUCATION > • LANGUAGE SKILLS.
+                    ORDER: • ABOUT MYSELF > • STRATEGIC COMPETENCIES > • WORK EXPERIENCE > • SKILLS > • EDUCATION > • LANGUAGE SKILLS.
                     
-                    No markdown. Start with '• ABOUT MYSELF'.
+                    Rules: No markdown. Start with '• ABOUT MYSELF'.
                     SOURCE: {res_text}
                     """
                     
-                    # FIXED MODEL ID
+                    # STABLE MODEL ID
                     resp = client.messages.create(
-                        model="claude-3-5-sonnet-latest", 
+                        model="claude-3-5-sonnet-20241022", 
                         max_tokens=4000, 
                         messages=[{"role": "user", "content": prompt}]
                     )
@@ -115,19 +116,19 @@ with tab1:
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res))
                     conn.commit()
                     
-                    st.success("Resume Optimized with Full Titles and Dates!")
-                    st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res), f"{comp}_Final_Resume.pdf")
-                    st.markdown(f'<div style="background-color:white; color:black; padding:35px; border:2px solid #000; font-family: Arial;">{tailored_res}</div>', unsafe_allow_html=True)
+                    st.success("Resume Optimized!")
+                    st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res), f"{comp}_Resume.pdf")
+                    st.markdown(f'<div style="background-color:white; color:black; padding:35px; border:2px solid #000;">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
-    st.header("📊 History Archive")
+    st.header("📊 Archive")
     logs = pd.read_sql_query("SELECT id, date, company, role FROM applications ORDER BY id DESC", conn)
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
             with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
-                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"hist_v12_5_{row['id']}")
+                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"]), f"{row['company']}.pdf", key=f"v12_6_{row['id']}")
                 st.write(row["tailored_resume"])
