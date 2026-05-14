@@ -22,31 +22,38 @@ def trim_job_description(jd, max_chars=3800):
         return jd
     return jd[:1800] + "\n\n[...SYSTEM: JD OPTIMIZED FOR 95%+ CALIBRATION...]\n\n" + jd[-1800:]
 
-# --- PDF Generation Function ---
-def generate_pdf_resume(resume_text, company_name):
-    html_content = f'''
+# --- Hyper-Accurate Styled PDF Generation Function ---
+def generate_styled_pdf(resume_data, company_name):
+    # This template forces the PDF to look exactly like the "Elshishiny 010.pdf" 
+    html_template = f'''
     <!DOCTYPE html>
     <html>
     <head>
         <style>
-            @page {{ size: A4; margin: 20mm; }}
-            body {{ font-family: 'Helvetica', 'Arial', sans-serif; line-height: 1.5; font-size: 11pt; color: #333; }}
-            .header {{ text-align: center; border-bottom: 2px solid #1a3a5f; margin-bottom: 20px; padding-bottom: 10px; }}
-            h1 {{ color: #1a3a5f; margin: 0; text-transform: uppercase; font-size: 22pt; }}
-            .content {{ white-space: pre-wrap; }}
+            @page {{ size: A4; margin: 12mm 15mm; }}
+            body {{ font-family: 'Arial', sans-serif; color: #000; line-height: 1.3; font-size: 9.5pt; }}
+            .name-header {{ font-size: 18pt; font-weight: bold; margin-bottom: 5px; }}
+            .contact-info {{ font-size: 9pt; margin-bottom: 15px; }}
+            hr {{ border: 0; border-top: 1px solid #000; margin: 10px 0; }}
+            h2 {{ font-size: 11pt; font-weight: bold; text-transform: uppercase; margin-top: 15px; margin-bottom: 8px; }}
+            .content-box {{ white-space: pre-wrap; font-family: 'Arial', sans-serif; font-size: 9.5pt; text-align: justify; }}
         </style>
     </head>
     <body>
-        <div class="header">
-            <h1>ABDELRHMAN EL SHISHINY</h1>
+        <div class="name-header">Abdelrhman El Shishiny</div>
+        <div class="contact-info">
+            Date of birth: 28/04/1987 | Nationality: Egyptian | Gender: Male | Phone: (+966) 577534641 (Mobile) |<br>
+            Email address: elshishinyabdelrhman@gmail.com |<br>
+            Address: Sharbatly Village, Prince Metab Road, Marwa district, Jeddah, Saudi Arabia (Home)
         </div>
-        <div class="content">{resume_text}</div>
+        <hr>
+        <div class="content-box">{resume_data}</div>
     </body>
     </html>
     '''
-    return HTML(string=html_content).write_pdf()
+    return HTML(string=html_template).write_pdf()
 
-# --- UI Styling ---
+# --- UI Styling for the Streamlit App ---
 def apply_executive_css():
     st.markdown("""
         <style>
@@ -55,6 +62,7 @@ def apply_executive_css():
             background-color: #161B22; border: 1px solid #30363D;
             padding: 35px; border-radius: 10px; color: #E6EDF3;
             line-height: 1.7; white-space: pre-wrap; font-size: 1.05rem;
+            font-family: 'Inter', sans-serif;
         }
         .stExpander { border: 1px solid #30363D !important; background-color: #161B22 !important; }
         </style>
@@ -71,13 +79,12 @@ claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 CLAUDE_MODEL = "claude-sonnet-4-6"
 GEMINI_MODEL = "gemini-2.5-flash"
 
-# SIDEBAR
 with st.sidebar:
     st.header("⚙️ Settings")
     is_test_mode = st.checkbox("🛠️ Enable Test Mode", value=False)
 
 st.title("🚀 Executive Career Hub")
-st.caption("v7.9 | PDF Export Fixed | Claude 4.6 & Gemini 2.5 Flash")
+st.caption("v7.9 | Exact Layout PDF Export | Claude 4.6 & Gemini 2.5 Flash")
 
 tab1, tab2 = st.tabs(["🚀 Architect", "📊 Deep History"])
 
@@ -92,49 +99,36 @@ with tab1:
 
     if st.button("✨ GENERATE & SAVE TO HISTORY"):
         if not uploaded_file or not raw_jd_input:
-            st.warning("Please provide both your Resume and the Job Description.")
+            st.warning("Please provide both Resume and JD.")
         else:
             adj_jd = trim_job_description(raw_jd_input)
-            with st.spinner("Processing Full Document..."):
+            with st.spinner("Executing Exact Layout Architecture..."):
                 try:
                     if is_test_mode:
-                        tailored_res = f"""
-ABDELRHMAN EL SHISHINY
-Jeddah, Saudi Arabia | elshishinyabdelrhman@gmail.com | (+966) 577534641
-
-• STRATEGIC COMPETENCIES
-- Digital Leadership: End-to-end Digital Transformation, GCC Market Expansion, Revenue Growth Strategy.
-- Marketing Technology: HubSpot & Salesforce CRM Architecture, Marketing Automation, WhatsApp Workflows.
-- Performance & Growth: Multi-Channel Paid Media (Meta, Google Ads), Technical SEO, ROI Optimization.
-
-• WORK EXPERIENCE
-
-MARKETING & BUSINESS DEVELOPMENT DIRECTOR | DABOUQ TRADING CO.
-Jeddah, Saudi Arabia | 2025 – PRESENT
-- Spearheaded full-spectrum digital transformation by architecting the company's platform from inception.
-- Driven revenue growth across GCC markets through data-driven multi-channel campaigns.
-- Integrated HubSpot-aligned CRM and automation workflows to manage sales funnels.
-
-CONTENT & PARTNERSHIPS MANAGER | HUNGERSTATION
-Jeddah, Saudi Arabia | 2021 – 2024
-- Led content strategy and platform management for the leading delivery app in KSA.
-- Managed end-to-end CRM lifecycle campaigns and in-app messaging.
-
-EDUCATION
-- MBA | University of Cumbria, UK
-- Bachelor of Commerce | Ain Shams University, Egypt
-                        """
+                        tailored_res = "[FULL CONTENT WITH ORIGINAL STYLE HEADERS]"
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
                         resume_text = "".join([p.extract_text() or "" for p in reader.pages])
+                        
                         claude_client = anthropic.Anthropic(api_key=claude_key)
-                        prompt = f"Rewrite full resume for {job_title} at {company_name}. Mirror JD vocabulary. Include full history. RESUME: {resume_text} JD: {adj_jd}"
+                        # Specific prompt instructions to force the original format
+                        prompt = f"""
+                        Rewrite the resume for {job_title} at {company_name}.
+                        STRICT REQUIREMENT: Maintain the EXACT layout, numbering, and header style of the original resume.
+                        - Use '• ABOUT MYSELF' header.
+                        - Use '• STRATEGIC COMPETENCIES' header.
+                        - Use '• WORK EXPERIENCE' header.
+                        - For work experience, use numbered bullets (1., 2., 3.) and include dates/location as per the original.
+                        - Ensure '• EDUCATION & TRAINING' and '• LANGUAGE SKILLS' are at the end.
+                        RESUME: {resume_text}
+                        JD: {adj_jd}
+                        """
                         resp = claude_client.messages.create(model=CLAUDE_MODEL, max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text.replace('*', '')
                         
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                        score_res = gem_client.models.generate_content(model=GEMINI_MODEL, contents=f"Return match_score,ats_score: {tailored_res} vs {adj_jd}")
+                        score_res = gem_client.models.generate_content(model=GEMINI_MODEL, contents=f"Return match,ats: {tailored_res} vs {adj_jd}")
                         nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
                         sm, sa = nums[0], nums[1]
 
@@ -143,10 +137,12 @@ EDUCATION
                     conn.commit()
                     
                     st.success(f"Archived! Match: {sm}% | ATS: {sa}%")
-                    pdf_bytes = generate_pdf_resume(tailored_res, company_name)
-                    st.download_button("📥 Download Resume (PDF)", data=pdf_bytes, file_name=f"{company_name}_Resume.pdf", mime="application/pdf")
-                    st.markdown(f'<div class="resume-block">{tailored_res}</div>', unsafe_allow_html=True)
                     
+                    # Styled PDF Download
+                    pdf_data = generate_styled_pdf(tailored_res, company_name)
+                    st.download_button("📥 Download PDF (Exact Layout)", pdf_data, f"{company_name}_Resume.pdf", "application/pdf")
+                    
+                    st.markdown(f'<div class="resume-block">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
@@ -159,5 +155,5 @@ with tab2:
             with col1: st.info(row['raw_jd'])
             with col2:
                 st.markdown(f'<div class="resume-block">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
-                pdf_arch = generate_pdf_resume(row["tailored_resume"], row['company'])
+                pdf_arch = generate_styled_pdf(row["tailored_resume"], row['company'])
                 st.download_button("Download PDF", pdf_arch, f"{row['company']}_Resume.pdf", key=f"pdf_{row['id']}")
