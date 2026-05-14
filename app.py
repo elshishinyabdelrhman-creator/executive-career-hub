@@ -24,24 +24,23 @@ def trim_job_description(jd, max_chars=3800):
 
 # --- PDF Generation Function ---
 def generate_pdf_resume(resume_text, company_name):
-    # Professional HTML Template for PDF
     html_content = f'''
     <!DOCTYPE html>
     <html>
     <head>
         <style>
-            @page {{ size: A4; margin: 15mm; background-color: #ffffff; }}
-            body {{ font-family: 'Arial', sans-serif; color: #333; line-height: 1.4; font-size: 10pt; }}
-            .header {{ text-align: center; border-bottom: 2px solid #1a3a5f; margin-bottom: 15px; padding-bottom: 8px; }}
-            h1 {{ color: #1a3a5f; margin: 0; text-transform: uppercase; font-size: 20pt; }}
-            pre {{ white-space: pre-wrap; font-family: 'Arial', sans-serif; }}
+            @page {{ size: A4; margin: 20mm; }}
+            body {{ font-family: 'Helvetica', sans-serif; line-height: 1.5; font-size: 11pt; color: #333; }}
+            .header {{ text-align: center; border-bottom: 2px solid #1a3a5f; margin-bottom: 20px; padding-bottom: 10px; }}
+            h1 {{ color: #1a3a5f; margin: 0; text-transform: uppercase; font-size: 22pt; }}
+            .content {{ white-space: pre-wrap; }}
         </style>
     </head>
     <body>
         <div class="header">
             <h1>ABDELRHMAN EL SHISHINY</h1>
         </div>
-        <pre>{resume_text}</pre>
+        <div class="content">{resume_text}</div>
     </body>
     </html>
     '''
@@ -56,7 +55,6 @@ def apply_executive_css():
             background-color: #161B22; border: 1px solid #30363D;
             padding: 35px; border-radius: 10px; color: #E6EDF3;
             line-height: 1.7; white-space: pre-wrap; font-size: 1.05rem;
-            font-family: 'Inter', sans-serif;
         }
         .stExpander { border: 1px solid #30363D !important; background-color: #161B22 !important; }
         </style>
@@ -73,13 +71,13 @@ claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 CLAUDE_MODEL = "claude-sonnet-4-6"
 GEMINI_MODEL = "gemini-2.5-flash"
 
-# --- SIDEBAR: TEST MODE TOGGLE ---
+# SIDEBAR
 with st.sidebar:
     st.header("⚙️ Settings")
     is_test_mode = st.checkbox("🛠️ Enable Test Mode", value=False)
 
 st.title("🚀 Executive Career Hub")
-st.caption("v7.8 | PDF Export Enabled | Full History Mock Data")
+st.caption("v7.9 | PDF Export Fixed | Claude 4.6 & Gemini 2.5 Flash")
 
 tab1, tab2 = st.tabs(["🚀 Architect", "📊 Deep History"])
 
@@ -97,7 +95,6 @@ with tab1:
             st.warning("Please provide both your Resume and the Job Description.")
         else:
             adj_jd = trim_job_description(raw_jd_input)
-            
             with st.spinner("Processing Full Document..."):
                 try:
                     if is_test_mode:
@@ -111,30 +108,24 @@ Jeddah, Saudi Arabia | elshishinyabdelrhman@gmail.com | (+966) 577534641
 - Performance & Growth: Multi-Channel Paid Media (Meta, Google Ads), Technical SEO, ROI Optimization.
 
 • WORK EXPERIENCE
-
 MARKETING & BUSINESS DEVELOPMENT DIRECTOR | DABOUQ TRADING CO.
 Jeddah, Saudi Arabia | 2025 – PRESENT
 - Spearheaded full-spectrum digital transformation by architecting the company's platform from inception.
-- Driving brand presence and revenue growth across GCC markets through data-driven multi-channel campaigns.
-- Integrated HubSpot-aligned CRM and automation workflows to manage sales funnels and improve lead retention.
+- Integrated HubSpot-aligned CRM and automation workflows to manage sales funnels.
 
-CONTENT & PARTNERSHIPS MANAGER (KSA & INTL) | HUNGERSTATION (DELIVERY HERO)
+CONTENT & PARTNERSHIPS MANAGER | HUNGERSTATION
 Jeddah, Saudi Arabia | 2021 – 2024
 - Led content strategy and platform management for the leading delivery app in KSA.
-- Managed end-to-end CRM lifecycle campaigns, push notifications, and in-app messaging.
-
-EDUCATION
-- MBA | University of Cumbria, UK
-- Bachelor of Commerce | Ain Shams University, Egypt
                         """
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
                         resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                         claude_client = anthropic.Anthropic(api_key=claude_key)
-                        prompt = f"Rewrite full resume for {job_title} at {company_name}. Mirror JD vocabulary. Include full history. RESUME: {resume_text} JD: {adj_jd}"
+                        prompt = f"Rewrite full resume for {job_title} at {company_name}. Mirror JD keywords. Include full history. RESUME: {resume_text} JD: {adj_jd}"
                         resp = claude_client.messages.create(model=CLAUDE_MODEL, max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                         tailored_res = resp.content[0].text.replace('*', '')
+                        
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
                         score_res = gem_client.models.generate_content(model=GEMINI_MODEL, contents=f"Return match_score,ats_score: {tailored_res} vs {adj_jd}")
                         nums = [int(s) for s in score_res.text.split(',') if s.strip().isdigit()]
@@ -145,11 +136,8 @@ EDUCATION
                     conn.commit()
                     
                     st.success(f"Archived! Match: {sm}% | ATS: {sa}%")
-                    
-                    # PDF Download Button
-                    pdf_data = generate_pdf_resume(tailored_res, company_name)
-                    st.download_button("📥 Download Tailored Resume (PDF)", data=pdf_data, file_name=f"{company_name}_Resume.pdf", mime="application/pdf")
-                    
+                    pdf_bytes = generate_pdf_resume(tailored_res, company_name)
+                    st.download_button("📥 Download Resume (PDF)", data=pdf_bytes, file_name=f"{company_name}_Resume.pdf", mime="application/pdf")
                     st.markdown(f'<div class="resume-block">{tailored_res}</div>', unsafe_allow_html=True)
                     
                 except Exception as e:
@@ -164,5 +152,5 @@ with tab2:
             with col1: st.info(row['raw_jd'])
             with col2:
                 st.markdown(f'<div class="resume-block">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
-                pdf_archive = generate_pdf_resume(row["tailored_resume"], row['company'])
-                st.download_button("Download PDF", pdf_archive, f"{row['company']}_Resume.pdf", key=f"pdf_{row['id']}")
+                pdf_arch = generate_pdf_resume(row["tailored_resume"], row['company'])
+                st.download_button("Download PDF", pdf_arch, f"{row['company']}_Resume.pdf", key=f"pdf_{row['id']}")
