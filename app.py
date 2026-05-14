@@ -11,7 +11,7 @@ import re
 
 # --- DATABASE SETUP ---
 def get_db_connection():
-    conn = sqlite3.connect('career_hub_v11_final.db', check_same_thread=False)
+    conn = sqlite3.connect('career_hub_v11_7.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS applications 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
@@ -23,12 +23,13 @@ def get_db_connection():
 conn = get_db_connection()
 c = conn.cursor()
 
-# --- v11.6 CLEANING ENGINE (DATE & SEQUENCE PROTECTOR) ---
+# --- v11.7 HARD-PROTECTION CLEANING ENGINE ---
 def clean_resume_text(text):
-    # Strip AI markdown headers (#)
+    # Only strip markdown headers (#). 
+    # DO NOT remove asterisks or numbers to protect dates and numbered lists.
     text = re.sub(r'#+', '', text)
     
-    # HARD FILTER: Remove duplicated contact info headers
+    # Hard Filter for Header Duplication (Prevents Name/Contact appearing twice)
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:", "Email:"]
     lines = text.split('\n')
     filtered = [line for line in lines if not any(f.lower() in line.lower() for f in forbidden)]
@@ -43,9 +44,9 @@ def generate_styled_pdf(resume_data, company_name):
     <head>
         <style>
             @page {{ size: A4; margin: 15mm 15mm; }}
-            body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.45; font-size: 10.5pt; }}
+            body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.5; font-size: 10.5pt; }}
             .name-header {{ font-size: 20pt; font-weight: bold; text-align: center; margin-bottom: 2px; }}
-            .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 12px; border-bottom: 1.5px solid #000; padding-bottom: 10px; }}
+            .contact-info {{ font-size: 9.5pt; text-align: center; margin-bottom: 12px; border-bottom: 1.5px solid #000; padding-bottom: 10px; }}
             .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 10px; }}
         </style>
     </head>
@@ -67,16 +68,16 @@ def generate_styled_pdf(resume_data, company_name):
 def apply_executive_css():
     st.markdown("""
         <style>
-        .stApp {{ background-color: #FFFFFF !important; }}
-        .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div {{ color: #000000 !important; }}
-        .paper-container {{
+        .stApp { background-color: #FFFFFF !important; }
+        .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div { color: #000000 !important; }
+        .paper-container {
             background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #000000 !important;
             margin: 20px 0px !important; line-height: 1.6;
-        }}
+        }
         </style>
     """, unsafe_allow_html=True)
 
-st.set_page_config(page_title="Executive Career Hub", layout="wide")
+st.set_page_config(page_title="Executive Career Hub v11.7", layout="wide")
 apply_executive_css()
 
 gemini_key = st.secrets.get("GEMINI_API_KEY")
@@ -95,65 +96,62 @@ with tab1:
 
     if st.button("✨ GENERATE & SAVE"):
         if not up_file or not jd_input:
-            st.warning("All fields are mandatory.")
+            st.warning("Please provide both Resume and Job Description.")
         else:
-            with st.spinner("Locking History & Correcting Sequence..."):
+            with st.spinner("Locking Career History and Preserving Dates..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # STRICT SEQUENCE AND DATE PROTECTION PROMPT
+                    # THE "PAID TIER" FINAL PROMPT
                     prompt = f"""
                     Rewrite the resume for {role} at {comp}. 
-                    
-                    STRICT SECTION ORDER (DO NOT CHANGE):
-                    1. • ABOUT MYSELF (Tailored)
-                    2. • STRATEGIC COMPETENCIES (Tailored)
-                    3. • WORK EXPERIENCE (See rules below)
-                    4. • SKILLS (Extracted from JD)
-                    5. • EDUCATION & TRAINING (Raw Copy)
-                    6. • LANGUAGE SKILLS (Raw Copy)
 
-                    WORK EXPERIENCE RULES:
-                    - CURRENT ROLE (DABOUQ TRADING CO): Rewrite accomplishments (10-12 points, 1. 2. 3. numbering). MUST start with header: DABOUQ TRADING CO | 2022 - PRESENT.
-                    - ALL PAST ROLES: Copy the headers, DATES, and content for SHIP HERO, SPELENZO, and CITI BANK exactly as they are in the PDF. Do NOT move the Skills section between them.
-                    
-                    No markdown headers. No contact info. Start with '• ABOUT MYSELF'.
-                    RESUME: {res_text}
-                    JD: {jd_input}
+                    STRICT RULES:
+                    1. EDIT ONLY: 'About Myself', 'Strategic Competencies', and the 'Current Work Experience' (Dabouq Trading Co).
+                    2. CURRENT ROLE (Dabouq Trading Co): Expand to 10-12 detailed numbered points (1., 2., 3.). Max 3500 chars.
+                    3. MANDATORY DATES: Every job MUST start with its COMPANY NAME and DATE RANGE. 
+                       - Example: DABOUQ TRADING CO | 2022 - PRESENT
+                       - Example: SHIP HERO | 2021 - 2022
+                    4. LOCKED HISTORY: You MUST include SHIP HERO, SPELENZO, and CITI BANK. Copy their headers, dates, and content exactly from the source. DO NOT DELETE THEM.
+                    5. SEQUENCE: About Myself > Competencies > Work Experience > Skills > Education > Languages.
+                    6. SKILLS: Extract technical skills from the JD: {jd_input}.
+
+                    No markdown. No contact info. Start with '• ABOUT MYSELF'.
+                    RESUME SOURCE: {res_text}
                     """
                     
                     resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
-                    tailored_res = clean_resume_text(resp.content[0].text)
+                    tailored_res = resp.content[0].text
                     
-                    # Score Bypass
+                    # Emergency Score Bypass
                     sm, sa = 0, 0
                     try:
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                        scr = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match,ats: {{tailored_res}}")
+                        scr = gem_client.models.generate_content(model="gemini-2.5-flash", contents=f"Return match,ats: {tailored_res}")
                         scores = [int(s.strip()) for s in scr.text.split(',') if s.strip().isdigit()]
                         sm, sa = scores[0], scores[1]
                     except:
-                        st.info("⚠️ Score bypass active. Download PDF below.")
+                        st.info("⚠️ Score service busy. Download your PDF below.")
 
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    st.success("Corrected Sequence Generated.")
-                    st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{{comp}}_Resume.pdf")
-                    st.markdown(f'<div class="paper-container">{{tailored_res}}</div>', unsafe_allow_html=True)
+                    st.success("Resume Archived with Full Dates and History.")
+                    st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
+                    st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
-                    st.error(f"Error: {{e}}")
+                    st.error(f"Error: {e}")
 
 with tab2:
-    st.header("📊 History Tracker")
+    st.header("📊 History Archive")
     logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role' FROM applications ORDER BY id DESC", conn)
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
-            with st.expander(f"#{{row['id']}} | {{row['company']}} | {{row['role']}}"):
-                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{{row['company']}}.pdf", key=f"dl_{{row['id']}}")
-                st.markdown(f'<div class="paper-container">{{row["tailored_resume"]}}</div>', unsafe_allow_html=True)
+            with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
+                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"dl_{row['id']}")
+                st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
