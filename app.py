@@ -23,14 +23,12 @@ def get_db_connection():
 conn = get_db_connection()
 c = conn.cursor()
 
-# --- v11.1 CLEANING ENGINE ---
+# --- v11.3 CLEANING ENGINE (DATE & POINT SHIELD) ---
 def clean_resume_text(text):
-    # Remove AI Markdown noise
     text = re.sub(r'#+', '', text)
-    # Protect numbering (1. 2. 3.) and remove other asterisks
-    text = re.sub(r'\*(?!\s*\d\.)', '', text)
+    # Only remove stars if they aren't part of a numbered list or a date range
+    text = re.sub(r'\*(?!\s*\d+\.)(?!\s*\d{4})(?!\s*Present)', '', text)
     
-    # Hard Filter for Header Duplication
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:", "Email:"]
     lines = text.split('\n')
     filtered = [line for line in lines if not any(f.lower() in line.lower() for f in forbidden)]
@@ -48,7 +46,7 @@ def generate_styled_pdf(resume_data, company_name):
             body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.4; font-size: 10.5pt; }}
             .name-header {{ font-size: 20pt; font-weight: bold; text-align: center; margin-bottom: 2px; }}
             .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 12px; border-bottom: 1px solid #000; padding-bottom: 10px; }}
-            .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 5px; }}
+            .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 10px; }}
         </style>
     </head>
     <body>
@@ -72,10 +70,9 @@ def apply_executive_css():
         .stApp { background-color: #FFFFFF !important; }
         .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div { color: #000000 !important; }
         .paper-container {
-            background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #EEEEEE !important;
+            background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #DDDDDD !important;
             margin: 20px 0px !important; box-shadow: 0px 4px 15px rgba(0,0,0,0.05);
         }
-        [data-testid="stDataFrame"] div[role="gridcell"] { text-align: center !important; justify-content: center !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -85,7 +82,7 @@ apply_executive_css()
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
-tab1, tab2 = st.tabs(["🚀 Architect", "📊 History Archive"])
+tab1, tab2 = st.tabs(["🚀 Architect", "📊 History Tracker"])
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
@@ -98,39 +95,33 @@ with tab1:
 
     if st.button("✨ GENERATE & SAVE"):
         if not up_file or not jd_input:
-            st.warning("All fields are required.")
+            st.warning("Please provide JD and Resume.")
         else:
-            with st.spinner("Executing Strategic Tailoring..."):
+            with st.spinner("Expanding accomplishments and verifying dates..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
+                    # UPDATED PROMPT: Demanding 10-12 points for the current role
                     prompt = f"""
                     Tailor this resume for {role} at {comp}. 
                     
-                    STRICT WORK EXPERIENCE RULES:
-                    1. ONLY rewrite the accomplishments for the CURRENT role at DABOUQ TRADING CO.
-                    2. For DABOUQ TRADING CO, the accomplishments MUST NOT exceed 3500 characters.
-                    3. Use 1., 2., 3. numbering for accomplishments under DABOUQ.
-                    4. For ALL PREVIOUS ROLES (Ship Hero, Spelenzo, Citi Bank), copy their Company Name, Dates, and Content EXACTLY from the resume. Do NOT change them.
+                    STRICT WORK EXPERIENCE INSTRUCTIONS:
+                    1. CURRENT ROLE (DABOUQ TRADING CO): Rewrite this section to be highly relevant to the JD. You MUST provide between 10 and 12 detailed numbered points (1., 2., 3., etc.). Use the full 3500-character allowance for this role to show depth.
+                    2. DATE PROTECTION: For EVERY job entry, the first line MUST be: [COMPANY NAME] | [DATES FROM RESUME]. Do not omit the years.
+                    3. PREVIOUS ROLES: For roles at Ship Hero, Spelenzo, and Citi Bank, copy their headers, dates, and bullet points EXACTLY as they appear in the master resume. Do not summarize them.
                     
-                    MANDATORY SECTIONS (DO NOT SKIP):
-                    • ABOUT MYSELF (Tailored)
-                    • STRATEGIC COMPETENCIES (Tailored)
-                    • WORK EXPERIENCE (Selective tailoring applied)
-                    • SKILLS (Extracted from JD)
-                    • EDUCATION & TRAINING (Copied exactly)
-                    • LANGUAGE SKILLS (Arabic, English, German, French - Copied exactly)
+                    SECTIONS: • ABOUT MYSELF, • STRATEGIC COMPETENCIES, • WORK EXPERIENCE, • SKILLS, • EDUCATION & TRAINING, • LANGUAGE SKILLS.
                     
-                    No markdown (# or *). No contact info. Start with '• ABOUT MYSELF'.
+                    RULES: No markdown headers. No contact info. Start with '• ABOUT MYSELF'.
                     RESUME: {res_text}
                     """
                     
                     resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                     tailored_res = clean_resume_text(resp.content[0].text)
                     
-                    # Bypass Scoring if Quota hits 429
+                    # Emergency bypass for scores
                     sm, sa = 0, 0
                     try:
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
@@ -138,28 +129,25 @@ with tab1:
                         scores = [int(s.strip()) for s in scr.text.split(',') if s.strip().isdigit()]
                         sm, sa = scores[0], scores[1]
                     except:
-                        st.info("⚠️ Scoring service busy. Resume generated and saved successfully.")
+                        st.info("⚠️ Score bypass active. PDF is ready.")
 
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    st.success("Clean Resume Generated and Archived.")
+                    st.success("High-Detail Resume Generated.")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                     st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
-    st.header("📊 Strategic Application Archive")
-    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role', score_match as 'Match Score %', score_ats as 'ATS Score %' FROM applications ORDER BY id DESC", conn)
+    st.header("📊 History")
+    logs = pd.read_sql_query("SELECT id as '#', date as 'Applied At', company as 'Company', role as 'Role' FROM applications ORDER BY id DESC", conn)
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
-        st.divider()
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
             with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
                 st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"dl_{row['id']}")
-                st.write("**Job Description Reference:**")
-                st.caption(row['raw_jd'])
                 st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
