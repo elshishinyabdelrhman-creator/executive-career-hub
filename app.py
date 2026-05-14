@@ -49,30 +49,33 @@ apply_executive_css()
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
-# UPDATED 2026 STABLE MODEL IDs
-GEMINI_MODEL = "gemini-2.5-flash" 
-CLAUDE_MODEL = "claude-sonnet-4-6" # Updated from legacy 3.5 Sonnet
+# SET TO 1.5 FLASH FOR HIGH FREE TIER LIMITS
+GEMINI_MODEL = "gemini-1.5-flash" 
 
 st.title("🚀 Strategic Resume Architect")
-st.caption("v5.7 | Claude 4.6 & Gemini 2.5 | Production Stable")
+st.caption("v5.8 | Gemini 1.5 Flash (Free Tier) | Claude Dormant")
 
 tab1, tab2 = st.tabs(["🚀 Strategic Audit", "📊 History"])
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
     with col_a:
-        company = st.text_input("Target Company", placeholder="e.g. Sofitel")
-        title = st.text_input("Target Role", placeholder="e.g. General Manager")
+        company = st.text_input("Target Company", placeholder="e.g. Extra")
+        title = st.text_input("Target Role", placeholder="e.g. Digital Marketing Director")
         job_desc = st.text_area("Paste Job Description", height=300)
     with col_b:
         uploaded_file = st.file_uploader("Upload Master Resume", type="pdf")
-        engine_choice = st.radio("Primary Writing Engine:", ["Claude Sonnet 4.6", "Gemini 2.5 Flash"])
+        
+        # We keep the engine choice but hard-disable Claude for now
+        engine_choice = st.radio("Primary Writing Engine:", ["Gemini 1.5 Flash", "Claude (Disabled)"])
 
     if st.button("✨ ARCHITECT COMPLETE RESUME"):
-        if not uploaded_file or not job_desc:
+        if "Disabled" in engine_choice:
+            st.error("Claude is currently deactivated to save credits. Please use Gemini 1.5 Flash.")
+        elif not uploaded_file or not job_desc:
             st.warning("All inputs required.")
         else:
-            with st.spinner(f"Architecting with {engine_choice}..."):
+            with st.spinner(f"Architecting with {GEMINI_MODEL}..."):
                 try:
                     reader = PdfReader(uploaded_file)
                     resume_text = "".join([p.extract_text() or "" for p in reader.pages])
@@ -80,30 +83,21 @@ with tab1:
                     prompt = f"""
                     Act as an Executive Career Architect. Rewrite this resume for {title} at {company}.
                     1. NO PLACEHOLDERS: Use zero asterisks (*). 
-                    2. CURRENT ROLE: 12-15 exhaustive achievement bullets focusing on P&L and ROI.
+                    2. CURRENT ROLE: 12-15 exhaustive achievement bullets focusing on P&L, ROI, and scale.
                     3. SKILLS: Categorized 'Strategic Competencies' section with 20+ keywords.
                     RESUME: {resume_text} \n JD: {job_desc}
                     """
 
-                    if "Claude" in engine_choice:
-                        anthro_client = anthropic.Anthropic(api_key=claude_key)
-                        resp = anthro_client.messages.create(
-                            model=CLAUDE_MODEL,
-                            max_tokens=4000,
-                            messages=[{"role": "user", "content": prompt}]
-                        )
-                        tailored_content = resp.content[0].text
-                    else:
-                        # Production v1 Route for Gemini 2.5
-                        gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                        resp = gem_client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-                        tailored_content = resp.text
+                    # Gemini 1.5 Flash Call
+                    gem_client = genai.Client(api_key=gemini_key)
+                    resp = gem_client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+                    tailored_content = resp.text
 
-                    tailored_content = tailored_content.replace('*', '')
+                    # Clean up any AI artifacts
+                    tailored_content = tailored_content.replace('*', '').replace('#', '')
 
-                    # Scoring extraction
-                    score_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                    score_res = score_client.models.generate_content(
+                    # Scoring extraction (Using the same Flash model)
+                    score_res = gem_client.models.generate_content(
                         model=GEMINI_MODEL, 
                         contents=f"Return only two integers separated by comma (Match, ATS): {tailored_content}"
                     )
@@ -114,7 +108,7 @@ with tab1:
                         sm, sa = 0, 0
 
                     c.execute("INSERT INTO applications (date, company, title, engine, analysis, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                              (datetime.now().strftime("%Y-%m-%d"), company, title, engine_choice, tailored_content, sm, sa))
+                              (datetime.now().strftime("%Y-%m-%d"), company, title, "Gemini 1.5", tailored_content, sm, sa))
                     conn.commit()
 
                     st.markdown("### 📊 Alignment Scores")
@@ -134,4 +128,4 @@ with tab2:
         history_df = pd.read_sql_query("SELECT date, company, title, engine, score_match, score_ats FROM applications ORDER BY date DESC", conn)
         st.dataframe(history_df, use_container_width=True)
     except:
-        st.info("No applications found yet.")
+        st.info("No applications logged in the current session.")
