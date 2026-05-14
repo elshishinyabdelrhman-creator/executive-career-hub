@@ -9,7 +9,7 @@ from weasyprint import HTML
 import io
 import re
 
-# --- DATABASE SETUP ---
+# --- DATABASE SETUP & AUTO-RECOVERY ---
 def get_db_connection():
     conn = sqlite3.connect('career_hub_v10.db', check_same_thread=False)
     c = conn.cursor()
@@ -17,19 +17,34 @@ def get_db_connection():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
                   role TEXT, raw_jd TEXT, tailored_resume TEXT, 
                   score_match INTEGER, score_ats INTEGER)''')
+    
+    # Merge older data if versions 9 or 7 exist
+    for old_db in ['career_hub_v9.db', 'career_hub_v7.db']:
+        try:
+            old_conn = sqlite3.connect(old_db)
+            old_df = pd.read_sql_query("SELECT * FROM applications", old_conn)
+            if not old_df.empty:
+                old_df.to_sql('applications', conn, if_exists='append', index=False)
+            old_conn.close()
+        except: continue
     conn.commit()
     return conn
 
 conn = get_db_connection()
 c = conn.cursor()
 
-# --- REFINED CLEANING ENGINE ---
+# --- THE EXECUTIVE CLEANING ENGINE ---
 def clean_resume_text(text):
+    # Remove AI Markdown headers and bulk bolding
     text = re.sub(r'#+', '', text)
+    # Only remove asterisks that aren't part of the 1. 2. 3. numbering
     text = re.sub(r'\*(?!\s*\d\.)', '', text)
+    
+    # Hard Filter for Header Duplication
     forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:", "Email:"]
     lines = text.split('\n')
     filtered = [line for line in lines if not any(f.lower() in line.lower() for f in forbidden)]
+    
     return "\n".join(filtered).strip()
 
 def generate_styled_pdf(resume_data, company_name):
@@ -42,8 +57,8 @@ def generate_styled_pdf(resume_data, company_name):
             @page {{ size: A4; margin: 15mm 15mm; }}
             body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.4; font-size: 10.5pt; }}
             .name-header {{ font-size: 20pt; font-weight: bold; text-align: center; margin-bottom: 2px; }}
-            .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 12px; border-bottom: 1px solid #000; padding-bottom: 8px; }}
-            .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 5px; }}
+            .contact-info {{ font-size: 9pt; text-align: center; margin-bottom: 12px; border-bottom: 1px solid #000; padding-bottom: 10px; }}
+            .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 10px; }}
         </style>
     </head>
     <body>
@@ -67,8 +82,8 @@ def apply_executive_css():
         .stApp { background-color: #FFFFFF !important; }
         .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div { color: #000000 !important; }
         .paper-container {
-            background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #EEEEEE !important;
-            margin: 20px 0px !important; box-shadow: 0px 4px 15px rgba(0,0,0,0.05);
+            background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #E0E0E0 !important;
+            margin: 20px 0px !important; box-shadow: 0px 4px 15px rgba(0,0,0,0.05); line-height: 1.6;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -76,6 +91,7 @@ def apply_executive_css():
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 apply_executive_css()
 
+# API Keys from Secrets
 gemini_key = st.secrets.get("GEMINI_API_KEY")
 claude_key = st.secrets.get("ANTHROPIC_API_KEY")
 
@@ -88,29 +104,29 @@ with tab1:
         role = st.text_input("Role Title")
         jd_input = st.text_area("Paste Full JD", height=200)
     with col_b:
-        up_file = st.file_uploader("Upload Master Resume", type="pdf")
+        up_file = st.file_uploader("Upload Master Resume (PDF)", type="pdf")
 
     if st.button("✨ GENERATE & SAVE"):
         if not up_file or not jd_input:
-            st.warning("Inputs required.")
+            st.warning("Missing data.")
         else:
-            with st.spinner("Processing (Score bypass active if quota full)..."):
+            with st.spinner("Processing (Bypass active for Quota Limits)..."):
                 try:
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     client = anthropic.Anthropic(api_key=claude_key)
                     
-                    # 1. TAILOR CONTENT (Claude)
+                    # 1. TAILOR CONTENT (Claude 3.5 Sonnet)
                     prompt = f"""
-                    Rewrite the resume for {role} at {comp}.
-                    SECTIONS: • ABOUT MYSELF, • STRATEGIC COMPETENCIES, • WORK EXPERIENCE (Current focus, max 3500 chars, numbering 1., 2., 3.), • SKILLS (Extracted from JD), • EDUCATION & TRAINING, • LANGUAGE SKILLS.
-                    No markdown. No contact info. Start with '• ABOUT MYSELF'.
+                    Tailor this resume for {role} at {comp}. 
+                    STRUCTURE: • ABOUT MYSELF, • STRATEGIC COMPETENCIES, • WORK EXPERIENCE (Max 3500 chars, use 1., 2., 3. numbering), • SKILLS (Extract hard skills from JD), • EDUCATION & TRAINING, • LANGUAGE SKILLS.
+                    STRICT RULES: No markdown. No contact info. Preserve Company Names and Dates.
                     RESUME: {res_text} JD: {jd_input}
                     """
                     resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
                     tailored_res = clean_resume_text(resp.content[0].text)
                     
-                    # 2. SCORING ENGINE (With Quota Error Handling)
+                    # 2. SCORING (With 429 Quota Bypass)
                     sm, sa = 0, 0
                     try:
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
@@ -118,14 +134,14 @@ with tab1:
                         scores = [int(s.strip()) for s in scr.text.split(',') if s.strip().isdigit()]
                         sm, sa = scores[0], scores[1]
                     except Exception:
-                        st.info("⚠️ Score service busy/limited. Saving resume without match scores.")
+                        st.info("⚠️ Score quota reached. Saving resume without scores.")
 
-                    # 3. SAVE & SHOW
+                    # 3. SAVE & PREVIEW
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    st.success("Resume Archived Successfully.")
+                    st.success("Resume Generated Successfully!")
                     st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                     st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
