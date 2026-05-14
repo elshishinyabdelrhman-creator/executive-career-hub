@@ -6,7 +6,7 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 from weasyprint import HTML
-import base64
+import io
 
 # --- Database Setup (v7 Stable) ---
 conn = sqlite3.connect('career_hub_v7.db', check_same_thread=False)
@@ -24,19 +24,19 @@ def trim_job_description(jd, max_chars=3800):
 
 # --- Hyper-Accurate Styled PDF Generation Function ---
 def generate_styled_pdf(resume_data, company_name):
-    # This template forces the PDF to look exactly like the "Elshishiny 010.pdf" 
     html_template = f'''
     <!DOCTYPE html>
     <html>
     <head>
         <style>
             @page {{ size: A4; margin: 12mm 15mm; }}
-            body {{ font-family: 'Arial', sans-serif; color: #000; line-height: 1.3; font-size: 9.5pt; }}
+            /* Use Liberation Sans for Linux compatibility to prevent blank pages */
+            body {{ font-family: "Liberation Sans", Arial, sans-serif; color: #000; line-height: 1.3; font-size: 9.5pt; }}
             .name-header {{ font-size: 18pt; font-weight: bold; margin-bottom: 5px; }}
             .contact-info {{ font-size: 9pt; margin-bottom: 15px; }}
             hr {{ border: 0; border-top: 1px solid #000; margin: 10px 0; }}
             h2 {{ font-size: 11pt; font-weight: bold; text-transform: uppercase; margin-top: 15px; margin-bottom: 8px; }}
-            .content-box {{ white-space: pre-wrap; font-family: 'Arial', sans-serif; font-size: 9.5pt; text-align: justify; }}
+            .content-box {{ white-space: pre-wrap; font-family: "Liberation Sans", sans-serif; font-size: 9.5pt; text-align: justify; }}
         </style>
     </head>
     <body>
@@ -51,9 +51,13 @@ def generate_styled_pdf(resume_data, company_name):
     </body>
     </html>
     '''
-    return HTML(string=html_template).write_pdf()
+    # Create the PDF in a memory buffer to ensure it isn't blank
+    pdf_buffer = io.BytesIO()
+    HTML(string=html_template).write_pdf(target=pdf_buffer)
+    pdf_buffer.seek(0)
+    return pdf_buffer
 
-# --- UI Styling for the Streamlit App ---
+# --- UI Styling ---
 def apply_executive_css():
     st.markdown("""
         <style>
@@ -84,7 +88,7 @@ with st.sidebar:
     is_test_mode = st.checkbox("🛠️ Enable Test Mode", value=False)
 
 st.title("🚀 Executive Career Hub")
-st.caption("v7.9 | Exact Layout PDF Export | Claude 4.6 & Gemini 2.5 Flash")
+st.caption("v7.9.2 | Styled PDF Fix | Claude 4.6 & Gemini 2.5 Flash")
 
 tab1, tab2 = st.tabs(["🚀 Architect", "📊 Deep History"])
 
@@ -105,22 +109,16 @@ with tab1:
             with st.spinner("Executing Exact Layout Architecture..."):
                 try:
                     if is_test_mode:
-                        tailored_res = "[FULL CONTENT WITH ORIGINAL STYLE HEADERS]"
+                        tailored_res = "• ABOUT MYSELF\nResults-driven leader with 10+ years experience...\n\n• STRATEGIC COMPETENCIES\nDIGITAL LEADERSHIP: End-to-end Transformation...\n\n• WORK EXPERIENCE\n13/01/2025–CURRENT\nMARKETING & BUSINESS DEVELOPMENT DIRECTOR – DABOUQ TRADING CO.\n1. Spearheaded digital transformation...\n2. Integrated HubSpot CRM..."
                         sm, sa = 98, 99
                     else:
                         reader = PdfReader(uploaded_file)
                         resume_text = "".join([p.extract_text() or "" for p in reader.pages])
                         
                         claude_client = anthropic.Anthropic(api_key=claude_key)
-                        # Specific prompt instructions to force the original format
                         prompt = f"""
                         Rewrite the resume for {job_title} at {company_name}.
-                        STRICT REQUIREMENT: Maintain the EXACT layout, numbering, and header style of the original resume.
-                        - Use '• ABOUT MYSELF' header.
-                        - Use '• STRATEGIC COMPETENCIES' header.
-                        - Use '• WORK EXPERIENCE' header.
-                        - For work experience, use numbered bullets (1., 2., 3.) and include dates/location as per the original.
-                        - Ensure '• EDUCATION & TRAINING' and '• LANGUAGE SKILLS' are at the end.
+                        STRICT REQUIREMENT: Maintain the EXACT layout, numbering (1., 2., 3.), and header style (• ABOUT MYSELF, • STRATEGIC COMPETENCIES, • WORK EXPERIENCE) of the original resume.
                         RESUME: {resume_text}
                         JD: {adj_jd}
                         """
@@ -138,9 +136,9 @@ with tab1:
                     
                     st.success(f"Archived! Match: {sm}% | ATS: {sa}%")
                     
-                    # Styled PDF Download
-                    pdf_data = generate_styled_pdf(tailored_res, company_name)
-                    st.download_button("📥 Download PDF (Exact Layout)", pdf_data, f"{company_name}_Resume.pdf", "application/pdf")
+                    # Styled PDF Buffer
+                    pdf_buffer = generate_styled_pdf(tailored_res, company_name)
+                    st.download_button("📥 Download PDF (Exact Layout)", data=pdf_buffer, file_name=f"{company_name}_Resume.pdf", mime="application/pdf")
                     
                     st.markdown(f'<div class="resume-block">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
@@ -155,5 +153,5 @@ with tab2:
             with col1: st.info(row['raw_jd'])
             with col2:
                 st.markdown(f'<div class="resume-block">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
-                pdf_arch = generate_styled_pdf(row["tailored_resume"], row['company'])
-                st.download_button("Download PDF", pdf_arch, f"{row['company']}_Resume.pdf", key=f"pdf_{row['id']}")
+                pdf_archive = generate_styled_pdf(row["tailored_resume"], row['company'])
+                st.download_button("Download PDF", pdf_archive, f"{row['company']}_Resume.pdf", key=f"pdf_{row['id']}")
