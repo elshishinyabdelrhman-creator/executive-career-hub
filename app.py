@@ -16,34 +16,25 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib import colors
 
-# =========================
-# CONFIG
-# =========================
-st.set_page_config(page_title="ATS Resume Tailor", layout="wide")
+
+st.set_page_config(page_title="Executive Career Hub", layout="wide")
 
 CLAUDE_MODEL = "claude-haiku-4-5"
 
-# =========================
-# API KEY
-# =========================
+
 def get_api_key():
     try:
         return st.secrets.get("ANTHROPIC_API_KEY")
-    except:
+    except Exception:
         return os.getenv("ANTHROPIC_API_KEY")
+
 
 api_key = get_api_key()
 
-# =========================
-# DATABASE
-# =========================
+
 @st.cache_resource
 def get_db():
-    conn = sqlite3.connect(
-        "career_hub.db",
-        check_same_thread=False
-    )
-
+    conn = sqlite3.connect("career_hub.db", check_same_thread=False)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,76 +46,188 @@ def get_db():
             score_ats INTEGER
         )
     """)
-
     conn.commit()
     return conn
 
+
 conn = get_db()
 
-# =========================
-# CSS
-# =========================
+
 st.markdown("""
 <style>
-.stApp {
-    background: white;
-    color: black;
+.stApp { background: white !important; color: black !important; }
+.stApp, .stApp p, .stApp div, .stApp span, .stApp label {
+    color: black !important;
 }
-
 .paper {
-    border: 1px solid black;
-    padding: 30px;
+    background: white;
+    border: 1px solid #111;
+    padding: 38px;
     white-space: pre-wrap;
-    line-height: 1.5;
+    line-height: 1.45;
+    font-family: Arial, sans-serif;
+}
+.stButton>button {
+    background: black !important;
+    color: white !important;
+    width: 100%;
+    height: 3.2em;
+    border-radius: 0;
+    font-weight: bold;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# PDF EXTRACT
-# =========================
+
 def extract_pdf(uploaded_file):
     reader = PdfReader(uploaded_file)
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    text = re.sub(r"\s+", " ", text)
+    return text[:10000]
 
-    text = "\n".join(
-        page.extract_text() or ""
-        for page in reader.pages
-    )
 
-    return text[:12000]
-
-# =========================
-# SHORTEN JD
-# =========================
-def compress_jd(text):
-    return text[:6000]
-
-# =========================
-# JSON PARSER
-# =========================
 def parse_json(raw):
+    raw = raw.replace("```json", "").replace("```", "").strip()
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        raise ValueError("Claude did not return valid JSON.")
+    return json.loads(match.group(0))
 
-    raw = (
-        raw
-        .replace("```json", "")
-        .replace("```", "")
-        .strip()
+
+def clean_generated_section(text):
+    text = text or ""
+    forbidden = [
+        "Abdelrhman El Shishiny",
+        "Date of birth",
+        "Nationality",
+        "Gender",
+        "Phone",
+        "Email",
+        "Address",
+        "Sharbatly",
+        "Prince Metab",
+        "Jeddah, Saudi Arabia"
+    ]
+
+    lines = []
+    for line in text.split("\n"):
+        if not any(word.lower() in line.lower() for word in forbidden):
+            lines.append(line.strip())
+
+    return "\n".join([x for x in lines if x]).strip()
+
+
+def generate_sections(client, company, role, jd, resume):
+    prompt = f"""
+Return ONLY valid JSON.
+
+{{
+  "about": "...",
+  "core_competencies": "...",
+  "current_experience": "...",
+  "key_skills": "...",
+  "match": 95,
+  "ats": 96
+}}
+
+Target role: {role}
+Target company: {company}
+
+JD:
+{jd[:4500]}
+
+Resume:
+{resume[:9000]}
+
+Rules:
+- Do NOT include name, phone, email, address, date of birth, nationality, or gender.
+- Do NOT rewrite old roles.
+- Only update ABOUT, CORE COMPETENCIES, DABOUQ current role, and KEY SKILLS.
+- Keep Dabouq date exactly: 13/01/2025 - CURRENT | JEDDAH, SAUDI ARABIA
+- Current role title: MARKETING & BUSINESS DEVELOPMENT DIRECTOR
+- Current company: Dabouq Trading Co. (Cars & E-Commerce)
+- current_experience must be 10-12 bullets.
+- Match required/preferred JD skills.
+- Keep everything factual and ATS-friendly.
+- No markdown.
+"""
+
+    response = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=2200,
+        temperature=0.2,
+        messages=[{"role": "user", "content": prompt}]
     )
 
-    match = re.search(
-        r"\{.*\}",
-        raw,
-        re.DOTALL
-    )
+    return parse_json(response.content[0].text)
 
-    if match:
-        return json.loads(match.group(0))
 
-    raise ValueError("Invalid JSON")
+def build_final_resume(data):
+    about = clean_generated_section(data.get("about", ""))
+    core = clean_generated_section(data.get("core_competencies", ""))
+    current = clean_generated_section(data.get("current_experience", ""))
+    skills = clean_generated_section(data.get("key_skills", ""))
 
-# =========================
-# PDF GENERATOR
-# =========================
+    return f"""ABOUT MYSELF
+{about}
+
+CORE COMPETENCIES
+{core}
+
+WORK EXPERIENCE
+
+13/01/2025 - CURRENT | JEDDAH, SAUDI ARABIA
+MARKETING & BUSINESS DEVELOPMENT DIRECTOR
+Dabouq Trading Co. (Cars & E-Commerce)
+{current}
+
+2020 - 01/2025 | JEDDAH, SAUDI ARABIA
+MARKETING AND BUSINESS DEVELOPMENT DIRECTOR
+Ship Hero / Spelenzo
+• Developed social media marketing strategies with cohesive messaging across multiple platforms.
+• Delivered marketing strategy and consultative services with consistently high client satisfaction.
+• Cultivated partnerships with influencers and media partners to drive awareness and growth.
+• Oversaw multi-channel marketing campaigns across digital, CRM, email, SEO, PPC, and social channels.
+• Streamlined workflows with marketing automation tools and CRM systems.
+• Conducted market research and analysis to identify growth opportunities.
+• Prepared client proposals, business presentations, and sales pitches for senior stakeholders.
+• Negotiated contracts, managed client records, and supported business expansion.
+
+2013 - 2020 | JEDDAH, SAUDI ARABIA
+SALES AND MARKETING EXECUTIVE
+Spelenzo
+• Managed clients across perfumes, luxury fashion, watches, cosmetics, and telecommunications.
+• Planned and optimized SEO, SEM, email, social media, display, PPC, and retargeting campaigns.
+• Measured campaign performance and analyzed data to optimize digital strategy.
+• Developed sales promotions and content initiatives to increase revenue and web traffic.
+• Identified trends and insights to optimize digital marketing spend and conversion performance.
+
+2009 - 2013 | CAIRO, EGYPT
+SENIOR RELATIONSHIP MANAGER
+Citi Bank
+• Managed client relationships in a financial services environment.
+• Supported banking products, client advisory, and relationship management activities.
+
+2006 - 2009 | CAIRO, EGYPT
+RELATIONSHIP MANAGER
+Citi Bank
+• Developed client relationships and supported account management within retail banking.
+
+EDUCATION & TRAINING
+MASTERS OF BUSINESS ADMINISTRATION - MBA - UNIVERSITY OF CUMBRIA
+BACHELOR OF COMMERCE - BUSINESS MANAGEMENT - AIN SHAMS UNIVERSITY
+
+LANGUAGE SKILLS
+Arabic: Native
+English: C2
+German: B2
+French: B2
+
+KEY SKILLS
+{skills}
+""".strip()
+
+
 def generate_pdf(text):
     buffer = io.BytesIO()
 
@@ -162,24 +265,23 @@ def generate_pdf(text):
         leading=14,
         alignment=TA_LEFT,
         spaceBefore=10,
-        spaceAfter=5,
-        textColor=colors.black
+        spaceAfter=4
     )
 
     body_style = ParagraphStyle(
         "Body",
         fontName="Helvetica",
-        fontSize=9.2,
-        leading=12.2,
+        fontSize=9.1,
+        leading=12,
         alignment=TA_LEFT,
-        spaceAfter=4
+        spaceAfter=3
     )
 
     bullet_style = ParagraphStyle(
         "Bullet",
         fontName="Helvetica",
-        fontSize=9.2,
-        leading=12.2,
+        fontSize=9.1,
+        leading=12,
         leftIndent=12,
         firstLineIndent=-8,
         spaceAfter=3
@@ -188,10 +290,10 @@ def generate_pdf(text):
     exp_heading_style = ParagraphStyle(
         "ExperienceHeading",
         fontName="Helvetica-Bold",
-        fontSize=9.5,
+        fontSize=9.4,
         leading=12,
-        spaceBefore=7,
-        spaceAfter=3
+        spaceBefore=6,
+        spaceAfter=2
     )
 
     story = []
@@ -203,261 +305,140 @@ def generate_pdf(text):
         contact_style
     ))
     story.append(HRFlowable(width="100%", thickness=0.8, color=colors.black))
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 7))
 
-    lines = text.split("\n")
-
-    section_keywords = [
+    section_names = {
         "ABOUT MYSELF",
-        "PROFESSIONAL SUMMARY",
         "CORE COMPETENCIES",
-        "CORE COMPETENCIES & SKILLS",
-        "STRATEGIC COMPETENCIES",
         "WORK EXPERIENCE",
-        "PROFESSIONAL EXPERIENCE",
-        "EDUCATION",
         "EDUCATION & TRAINING",
         "LANGUAGE SKILLS",
-        "LANGUAGES",
         "KEY SKILLS"
-    ]
+    }
 
-    date_pattern = re.compile(
-        r"(\d{2}/\d{2}/\d{4}\s*-\s*CURRENT|\d{4}\s*-\s*\d{2}/\d{4}|\d{4}\s*-\s*\d{4}|\d{4}\s*-\s*CURRENT)",
-        re.IGNORECASE
-    )
+    date_pattern = re.compile(r"(\d{2}/\d{2}/\d{4}\s*-\s*CURRENT|\d{4}\s*-\s*\d{2}/\d{4}|\d{4}\s*-\s*\d{4})", re.I)
 
-    for raw_line in lines:
-        line = raw_line.strip()
+    for raw in text.split("\n"):
+        line = raw.strip()
 
         if not line:
             story.append(Spacer(1, 3))
             continue
 
-        clean_line = html.escape(line)
+        escaped = html.escape(line)
+        upper = line.upper().strip()
 
-        normalized = line.upper().replace("•", "").strip()
-
-        if normalized in section_keywords:
-            story.append(Paragraph(normalized, section_style))
+        if upper in section_names:
+            story.append(Paragraph(upper, section_style))
             story.append(HRFlowable(width="100%", thickness=0.35, color=colors.grey))
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 3))
 
-        elif date_pattern.search(line) or " | " in line and any(char.isdigit() for char in line):
-            story.append(Paragraph(clean_line, exp_heading_style))
+        elif date_pattern.search(line):
+            story.append(Paragraph(escaped, exp_heading_style))
+
+        elif line.isupper() and len(line) < 85:
+            story.append(Paragraph(escaped, exp_heading_style))
 
         elif line.startswith("•") or re.match(r"^\d+\.", line):
-            story.append(Paragraph(clean_line, bullet_style))
-
-        elif line.isupper() and len(line) < 80:
-            story.append(Paragraph(clean_line, exp_heading_style))
+            story.append(Paragraph(escaped, bullet_style))
 
         else:
-            story.append(Paragraph(clean_line, body_style))
+            story.append(Paragraph(escaped, body_style))
 
     doc.build(story)
     buffer.seek(0)
-
     return buffer
 
-# =========================
-# CLAUDE CALL
-# =========================
-def generate_resume(
-    client,
-    company,
-    role,
-    jd,
-    resume
-):
 
-    prompt = f"""
-Return ONLY JSON.
+st.title("Executive Career Hub")
 
-{{
-"resume":"...",
-"match":95,
-"ats":96
-}}
+tab1, tab2 = st.tabs(["Generate Resume", "History"])
 
-Role:{role}
-
-Company:{company}
-
-JD:
-{jd}
-
-Resume:
-{resume}
-
-Rules:
-- Keep dates.
-- Keep factual accuracy.
-- Add matching skills.
-- ATS optimize.
-- Add skills section.
-- Short concise bullets.
-"""
-
-    response = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=2500,
-        temperature=0.2,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
-
-    return response.content[0].text
-
-# =========================
-# UI
-# =========================
-st.title("ATS Resume Tailor")
-
-tab1, tab2 = st.tabs([
-    "Generate Resume",
-    "History"
-])
-
-# =========================
-# TAB 1
-# =========================
 with tab1:
-
-    company = st.text_input(
-        "Target Company"
-    )
-
-    role = st.text_input(
-        "Target Role"
-    )
-
-    jd = st.text_area(
-        "Paste JD",
-        height=250
-    )
-
-    file = st.file_uploader(
-        "Upload Resume PDF",
-        type=["pdf"]
-    )
+    company = st.text_input("Target Company")
+    role = st.text_input("Target Role")
+    jd = st.text_area("Paste Job Description", height=250)
+    file = st.file_uploader("Upload Master Resume PDF", type=["pdf"])
 
     if st.button("Generate ATS Resume"):
-
         if not api_key:
-            st.error("Missing ANTHROPIC_API_KEY")
-
+            st.error("Missing ANTHROPIC_API_KEY.")
         elif not company or not role or not jd or not file:
-            st.warning("Fill all fields")
-
+            st.warning("Fill all fields.")
         else:
-
-            with st.spinner("Generating..."):
-
+            with st.spinner("Updating only competencies, current experience, and skills..."):
                 try:
-
                     resume_text = extract_pdf(file)
 
-                    short_jd = compress_jd(jd)
+                    client = anthropic.Anthropic(api_key=api_key)
 
-                    client = anthropic.Anthropic(
-                        api_key=api_key
-                    )
+                    data = generate_sections(client, company, role, jd, resume_text)
+                    final_resume = build_final_resume(data)
 
-                    raw = generate_resume(
-                        client,
-                        company,
-                        role,
-                        short_jd,
-                        resume_text
-                    )
-
-                    data = parse_json(raw)
-
-                    tailored = data["resume"]
-
-                    match = int(
-                        data.get("match", 85)
-                    )
-
-                    ats = int(
-                        data.get("ats", 85)
-                    )
+                    match = max(0, min(100, int(data.get("match", 85))))
+                    ats = max(0, min(100, int(data.get("ats", 85))))
 
                     conn.execute("""
                         INSERT INTO applications
-                        (
-                            date,
-                            company,
-                            role,
-                            tailored_resume,
-                            score_match,
-                            score_ats
-                        )
+                        (date, company, role, tailored_resume, score_match, score_ats)
                         VALUES (?, ?, ?, ?, ?, ?)
                     """, (
-                        datetime.now().strftime(
-                            "%Y-%m-%d %H:%M"
-                        ),
+                        datetime.now().strftime("%Y-%m-%d %H:%M"),
                         company,
                         role,
-                        tailored,
+                        final_resume,
                         match,
                         ats
                     ))
 
                     conn.commit()
 
-                    st.success(
-                        f"Match {match}% | ATS {ats}%"
-                    )
+                    safe_company = re.sub(r"[^a-zA-Z0-9_-]+", "_", company)
+
+                    st.success(f"Match {match}% | ATS {ats}%")
 
                     st.download_button(
                         "Download PDF",
-                        data=generate_pdf(tailored),
-                        file_name=f"{company}_resume.pdf",
+                        data=generate_pdf(final_resume),
+                        file_name=f"{safe_company}_resume.pdf",
                         mime="application/pdf"
                     )
 
                     st.markdown(
-                        f"""
-                        <div class="paper">
-                        {html.escape(tailored)}
-                        </div>
-                        """,
+                        f'<div class="paper">{html.escape(final_resume)}</div>',
                         unsafe_allow_html=True
                     )
 
                 except Exception as e:
+                    st.error(f"Error: {type(e).__name__}: {e}")
 
-                    st.error(str(e))
 
-# =========================
-# TAB 2
-# =========================
 with tab2:
-
     logs = pd.read_sql_query(
-        """
-        SELECT *
-        FROM applications
-        ORDER BY id DESC
-        """,
+        "SELECT id, date, company, role, score_match, score_ats FROM applications ORDER BY id DESC",
         conn
     )
 
     if logs.empty:
-
-        st.info("No history")
-
+        st.info("No history yet.")
     else:
+        st.dataframe(logs, use_container_width=True, hide_index=True)
 
-        st.dataframe(
-            logs,
-            use_container_width=True,
-            hide_index=True
-        )
+        full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
+
+        for _, row in full_logs.iterrows():
+            with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
+                safe_company = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(row["company"]))
+
+                st.download_button(
+                    "Download PDF",
+                    data=generate_pdf(row["tailored_resume"]),
+                    file_name=f"{safe_company}_resume.pdf",
+                    mime="application/pdf",
+                    key=f"pdf_{row['id']}"
+                )
+
+                st.markdown(
+                    f'<div class="paper">{html.escape(row["tailored_resume"])}</div>',
+                    unsafe_allow_html=True
+                )
