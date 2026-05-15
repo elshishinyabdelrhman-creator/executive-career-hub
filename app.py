@@ -43,17 +43,20 @@ def get_db():
             company TEXT,
             role TEXT,
             raw_jd TEXT,
+            resume_style TEXT,
             tailored_resume TEXT,
             score_match INTEGER,
             score_ats INTEGER
         )
     """)
 
-    # Migration safety for old database versions
     existing_cols = pd.read_sql_query("PRAGMA table_info(applications)", conn)["name"].tolist()
 
     if "raw_jd" not in existing_cols:
         conn.execute("ALTER TABLE applications ADD COLUMN raw_jd TEXT")
+
+    if "resume_style" not in existing_cols:
+        conn.execute("ALTER TABLE applications ADD COLUMN resume_style TEXT")
 
     conn.commit()
     return conn
@@ -186,13 +189,47 @@ def list_to_pipe(items):
     return clean_generated_section(str(items))
 
 
-def generate_sections(client, company, role, jd, resume):
+def get_style_rules(style):
+    rules = {
+        "Executive": """
+Use senior executive positioning, commercial impact, strategic leadership, market expansion, stakeholder influence, and transformation language.
+Make the resume sound premium, confident, and boardroom-ready.
+""",
+        "Corporate": """
+Use polished corporate language suitable for banks, global enterprises, payment companies, and consulting environments.
+Prioritize governance, stakeholder management, measurable business outcomes, and cross-functional collaboration.
+""",
+        "Startup": """
+Use growth-focused, agile, builder-oriented language.
+Emphasize experimentation, speed, ownership, scaling, automation, and commercial traction.
+""",
+        "ATS Maximum": """
+Prioritize ATS keyword density while keeping natural executive language.
+Mirror required and preferred skills from the JD aggressively but truthfully.
+""",
+        "Concise": """
+Use concise, direct, high-impact language.
+Avoid long sentences. Keep bullets sharp and recruiter-friendly.
+""",
+        "Achievement Focused": """
+Prioritize measurable impact, outcomes, growth, optimization, revenue, acquisition, retention, efficiency, and performance improvement.
+Every bullet should imply business value.
+"""
+    }
+
+    return rules.get(style, rules["Executive"])
+
+
+def generate_sections(client, company, role, jd, resume, resume_style):
+    style_rules = get_style_rules(resume_style)
+
     prompt = f"""
 Return ONLY valid JSON.
 
 {{
-  "about": "ATS summary, 120-150 words, strongly aligned to the JD",
-  "core_competencies": [
+  "executive_profile": "premium ATS summary, 120-150 words, strongly aligned to the JD",
+  "strategic_competencies": [
+    "GROWTH MARKETING & DEMAND GENERATION: skill | skill | skill",
     "DIGITAL MARKETING & MARTECH: skill | skill | skill",
     "AI & MARKETING INNOVATION: skill | skill | skill",
     "CLIENT ENGAGEMENT & PARTNERSHIPS: skill | skill | skill",
@@ -215,12 +252,17 @@ Return ONLY valid JSON.
     "bullet 14"
   ],
   "key_skills": ["skill 1", "skill 2", "skill 3"],
+  "missing_keywords_added": ["keyword 1", "keyword 2"],
   "match": 95,
   "ats": 96
 }}
 
 Target role: {role}
 Target company: {company}
+Resume style: {resume_style}
+
+Style rules:
+{style_rules}
 
 JD:
 {jd[:4500]}
@@ -232,13 +274,15 @@ Rules:
 - Do NOT write full resume.
 - Do NOT include name, phone, email, address, date of birth, nationality, or gender.
 - Do NOT update old experience.
-- ONLY create about, core_competencies, current_experience for Dabouq, and key_skills.
+- ONLY create executive_profile, strategic_competencies, current_experience for Dabouq, key_skills, and missing_keywords_added.
 - current_experience must be exactly 14 bullets.
 - Each current_experience item must be one bullet sentence only.
 - Do not include bullet symbols inside JSON values.
-- Each bullet must include JD-relevant keywords where factually reasonable.
-- Use keywords from client engagement, digital marketing, martech, AI, analytics, KSA market, campaign optimization, financial services, B2B/B2B2C, partnerships, and stakeholder management.
-- Core competencies must directly mirror required and preferred JD skills.
+- Use strong action verbs: Led, Spearheaded, Optimized, Scaled, Delivered, Directed, Drove, Expanded, Strengthened, Transformed, Implemented.
+- Each bullet must show business value, commercial impact, campaign performance, client engagement, growth, retention, acquisition, optimization, or strategic contribution.
+- Mirror required and preferred JD skills where factually reasonable.
+- Use keywords from client engagement, digital marketing, martech, AI, analytics, KSA market, campaign optimization, financial services, B2B/B2B2C, partnerships, stakeholder management, and transformation.
+- Strategic competencies must directly mirror required and preferred JD skills.
 - Key skills must include 35-50 ATS keywords from the JD.
 - Keep facts realistic and based on resume.
 - Strong ATS language.
@@ -247,8 +291,8 @@ Rules:
 
     response = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=2600,
-        temperature=0.1,
+        max_tokens=3000,
+        temperature=0.15,
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -256,16 +300,16 @@ Rules:
 
 
 def build_final_resume(data):
-    about = clean_generated_section(data.get("about", ""))
-    core_text = list_to_lines(data.get("core_competencies", []))
+    executive_profile = clean_generated_section(data.get("executive_profile", ""))
+    competencies = list_to_lines(data.get("strategic_competencies", []))
     current_bullets = as_bullets(data.get("current_experience", []))
     skills_text = list_to_pipe(data.get("key_skills", []))
 
-    return f"""ABOUT MYSELF
-{about}
+    return f"""EXECUTIVE PROFILE
+{executive_profile}
 
-CORE COMPETENCIES
-{core_text}
+STRATEGIC COMPETENCIES
+{competencies}
 
 WORK EXPERIENCE
 
@@ -334,16 +378,16 @@ def generate_pdf(text):
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=36,
-        leftMargin=36,
-        topMargin=30,
-        bottomMargin=28
+        rightMargin=34,
+        leftMargin=34,
+        topMargin=28,
+        bottomMargin=26
     )
 
     title_style = ParagraphStyle(
         "Title",
         fontName="Helvetica-Bold",
-        fontSize=18,
+        fontSize=19,
         leading=22,
         alignment=TA_CENTER,
         spaceAfter=4
@@ -352,27 +396,27 @@ def generate_pdf(text):
     contact_style = ParagraphStyle(
         "Contact",
         fontName="Helvetica",
-        fontSize=8.5,
-        leading=11,
+        fontSize=8.3,
+        leading=10.5,
         alignment=TA_CENTER,
-        spaceAfter=8
+        spaceAfter=7
     )
 
     section_style = ParagraphStyle(
         "Section",
         fontName="Helvetica-Bold",
-        fontSize=11,
+        fontSize=11.2,
         leading=14,
         alignment=TA_LEFT,
-        spaceBefore=10,
+        spaceBefore=9,
         spaceAfter=4
     )
 
     body_style = ParagraphStyle(
         "Body",
         fontName="Helvetica",
-        fontSize=9.1,
-        leading=12,
+        fontSize=8.9,
+        leading=11.6,
         alignment=TA_LEFT,
         spaceAfter=3
     )
@@ -380,18 +424,18 @@ def generate_pdf(text):
     bullet_style = ParagraphStyle(
         "Bullet",
         fontName="Helvetica",
-        fontSize=9.1,
-        leading=12,
-        leftIndent=12,
-        firstLineIndent=-8,
-        spaceAfter=3
+        fontSize=8.9,
+        leading=11.6,
+        leftIndent=13,
+        firstLineIndent=-9,
+        spaceAfter=2.6
     )
 
     exp_heading_style = ParagraphStyle(
         "ExperienceHeading",
         fontName="Helvetica-Bold",
-        fontSize=9.4,
-        leading=12,
+        fontSize=9.3,
+        leading=11.6,
         spaceBefore=6,
         spaceAfter=2
     )
@@ -406,12 +450,12 @@ def generate_pdf(text):
         contact_style
     ))
 
-    story.append(HRFlowable(width="100%", thickness=0.8, color=colors.black))
+    story.append(HRFlowable(width="100%", thickness=0.9, color=colors.black))
     story.append(Spacer(1, 7))
 
     section_names = {
-        "ABOUT MYSELF",
-        "CORE COMPETENCIES",
+        "EXECUTIVE PROFILE",
+        "STRATEGIC COMPETENCIES",
         "WORK EXPERIENCE",
         "EDUCATION & TRAINING",
         "LANGUAGE SKILLS",
@@ -427,7 +471,7 @@ def generate_pdf(text):
         line = raw.strip()
 
         if not line:
-            story.append(Spacer(1, 3))
+            story.append(Spacer(1, 2.5))
             continue
 
         escaped = html.escape(line)
@@ -463,6 +507,17 @@ tab1, tab2 = st.tabs(["Generate Resume", "Application History"])
 with tab1:
     company = st.text_input("Target Company")
     role = st.text_input("Target Role")
+    resume_style = st.selectbox(
+        "Resume Style",
+        [
+            "Executive",
+            "Corporate",
+            "Startup",
+            "ATS Maximum",
+            "Concise",
+            "Achievement Focused"
+        ]
+    )
     jd = st.text_area("Paste Job Description", height=250)
     file = st.file_uploader("Upload Master Resume PDF", type=["pdf"])
 
@@ -474,16 +529,16 @@ with tab1:
             st.warning("Fill all fields.")
 
         else:
-            with st.spinner("Updating only competencies, current experience, and skills..."):
+            with st.spinner("Creating professional targeted resume..."):
                 try:
                     resume_text = extract_pdf(file)
                     client = anthropic.Anthropic(api_key=api_key)
 
-                    data = generate_sections(client, company, role, jd, resume_text)
+                    data = generate_sections(client, company, role, jd, resume_text, resume_style)
                     final_resume = build_final_resume(data)
 
-                    match = max(0, min(100, int(data.get("match", 85))))
-                    ats = max(0, min(100, int(data.get("ats", 85))))
+                    match = max(0, min(100, int(data.get("match", 90))))
+                    ats = max(0, min(100, int(data.get("ats", 90))))
 
                     conn.execute("""
                         INSERT INTO applications
@@ -492,16 +547,18 @@ with tab1:
                             company,
                             role,
                             raw_jd,
+                            resume_style,
                             tailored_resume,
                             score_match,
                             score_ats
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         datetime.now().strftime("%Y-%m-%d %H:%M"),
                         company,
                         role,
                         jd,
+                        resume_style,
                         final_resume,
                         match,
                         ats
@@ -511,7 +568,10 @@ with tab1:
 
                     safe_company = re.sub(r"[^a-zA-Z0-9_-]+", "_", company)
 
-                    st.success(f"Match {match}% | ATS {ats}%")
+                    st.success(f"Match {match}% | ATS {ats}% | Style: {resume_style}")
+
+                    if data.get("missing_keywords_added"):
+                        st.info("Keywords added: " + ", ".join(data["missing_keywords_added"]))
 
                     st.download_button(
                         "Download PDF",
@@ -548,17 +608,21 @@ with tab2:
         for _, row in logs.iterrows():
             company_value = row.get("company", "")
             role_value = row.get("role", "")
+            style_value = row.get("resume_style", "") or "N/A"
             match_value = row.get("score_match", 0)
             ats_value = row.get("score_ats", 0)
 
             with st.expander(
-                f"{company_value} | {role_value} | Match {match_value}% | ATS {ats_value}%"
+                f"{company_value} | {role_value} | {style_value} | Match {match_value}% | ATS {ats_value}%"
             ):
                 st.markdown("### Company")
                 st.write(company_value)
 
                 st.markdown("### Role")
                 st.write(role_value)
+
+                st.markdown("### Resume Style")
+                st.write(style_value)
 
                 st.markdown("### Date")
                 st.write(row.get("date", ""))
