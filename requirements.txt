@@ -1,7 +1,0 @@
-streamlit
-anthropic
-google-genai
-pypdf
-pandas
-weasyprint
-reportlab
