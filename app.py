@@ -19,7 +19,7 @@ from reportlab.lib.pagesizes import A4
 # =========================
 st.set_page_config(page_title="ATS Resume Tailor", layout="wide")
 
-CLAUDE_MODEL = "claude-3-haiku-20240307"
+CLAUDE_MODEL = "claude-haiku-4-5"
 
 # =========================
 # API KEY
