@@ -15,9 +15,15 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.enums import TA_CENTER
 
+
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 
-GEMINI_MODEL = "gemini-1.5-flash-latest"
+PREFERRED_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-002",
+    "gemini-1.5-flash-8b",
+]
 
 
 def get_gemini_key():
@@ -216,10 +222,48 @@ def safe_json_parse(raw_text):
     raise ValueError("AI response was not valid JSON.")
 
 
+def get_available_generate_models(client):
+    models = client.models.list()
+    available = []
+
+    for model in models:
+        name = model.name.replace("models/", "")
+
+        methods = (
+            getattr(model, "supported_actions", None)
+            or getattr(model, "supported_generation_methods", None)
+            or []
+        )
+
+        if "generateContent" in methods:
+            available.append(name)
+
+    return available
+
+
 def call_gemini(client, prompt):
-    return client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt
+    available_models = get_available_generate_models(client)
+
+    for preferred_model in PREFERRED_MODELS:
+        if preferred_model in available_models:
+            response = client.models.generate_content(
+                model=preferred_model,
+                contents=prompt
+            )
+            return response, preferred_model
+
+    if available_models:
+        fallback_model = available_models[0]
+
+        response = client.models.generate_content(
+            model=fallback_model,
+            contents=prompt
+        )
+
+        return response, fallback_model
+
+    raise RuntimeError(
+        "No Gemini model available for generateContent with this API key."
     )
 
 
@@ -337,7 +381,8 @@ EXPERIENCE RULES:
 - Do not include explanations outside JSON.
 """
 
-                    response = call_gemini(client, prompt)
+                    response, used_model = call_gemini(client, prompt)
+
                     data = safe_json_parse(response.text)
 
                     tailored_res = data.get("tailored_resume", "").strip()
@@ -369,7 +414,9 @@ EXPERIENCE RULES:
 
                     safe_company = re.sub(r"[^a-zA-Z0-9_-]+", "_", comp.strip())
 
-                    st.success(f"Success! Match: {sm}% | ATS: {sa}% | Model: {GEMINI_MODEL}")
+                    st.success(
+                        f"Success! Match: {sm}% | ATS: {sa}% | Model: {used_model}"
+                    )
 
                     st.download_button(
                         "📥 Download PDF",
