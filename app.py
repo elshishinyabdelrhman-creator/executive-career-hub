@@ -9,22 +9,15 @@ import re
 import json
 import html
 import os
-import time
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.enums import TA_CENTER
 
-
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 
-GEMINI_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash",
-]
+GEMINI_MODEL = "gemini-1.5-flash-latest"
 
 
 def get_gemini_key():
@@ -198,7 +191,7 @@ def generate_styled_pdf(resume_data):
 
         escaped_line = safe_pdf_text(line)
 
-        if line.startswith("• ") and len(line) < 80:
+        if line.startswith("• ") and len(line) < 90:
             story.append(Paragraph(escaped_line, heading_style))
         else:
             story.append(Paragraph(escaped_line, body_style))
@@ -223,41 +216,11 @@ def safe_json_parse(raw_text):
     raise ValueError("AI response was not valid JSON.")
 
 
-def call_gemini_with_fallback(client, prompt):
-    last_error = None
-
-    for model in GEMINI_MODELS:
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
-            return response, model
-
-        except Exception as e:
-            error_text = str(e)
-            last_error = e
-
-            if "429" in error_text:
-                st.warning(f"Quota limit on {model}. Retrying once in 25 seconds...")
-                time.sleep(25)
-
-                try:
-                    response = client.models.generate_content(
-                        model=model,
-                        contents=prompt
-                    )
-                    return response, model
-                except Exception as retry_error:
-                    last_error = retry_error
-                    continue
-
-            if "404" in error_text or "NOT_FOUND" in error_text:
-                continue
-
-            continue
-
-    raise last_error
+def call_gemini(client, prompt):
+    return client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt
+    )
 
 
 st.title("Executive Career Hub")
@@ -369,13 +332,12 @@ EXPERIENCE RULES:
 - Keep SHIP HERO, SPELENZO, and CITI BANK sections factually unchanged, including dates.
 - Expand DABOUQ TRADING CO | 2022 - PRESENT to 12 strong bullet points relevant to the job description.
 - Optimize all bullet points for ATS matching.
-- Add relevant JD keywords naturally.
+- Add relevant job description keywords naturally.
 - Do not use markdown headings like # or **.
 - Do not include explanations outside JSON.
 """
 
-                    response, used_model = call_gemini_with_fallback(client, prompt)
-
+                    response = call_gemini(client, prompt)
                     data = safe_json_parse(response.text)
 
                     tailored_res = data.get("tailored_resume", "").strip()
@@ -407,7 +369,7 @@ EXPERIENCE RULES:
 
                     safe_company = re.sub(r"[^a-zA-Z0-9_-]+", "_", comp.strip())
 
-                    st.success(f"Success! Match: {sm}% | ATS: {sa}% | Model used: {used_model}")
+                    st.success(f"Success! Match: {sm}% | ATS: {sa}% | Model: {GEMINI_MODEL}")
 
                     st.download_button(
                         "📥 Download PDF",
