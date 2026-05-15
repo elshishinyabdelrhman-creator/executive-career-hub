@@ -10,9 +10,11 @@ import json
 import html
 import os
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib import colors
 
 # =========================
 # CONFIG
@@ -124,35 +126,136 @@ def parse_json(raw):
 # PDF GENERATOR
 # =========================
 def generate_pdf(text):
-
     buffer = io.BytesIO()
 
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=A4
+        pagesize=A4,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=30,
+        bottomMargin=28
     )
 
-    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "Title",
+        fontName="Helvetica-Bold",
+        fontSize=18,
+        leading=22,
+        alignment=TA_CENTER,
+        spaceAfter=4
+    )
+
+    contact_style = ParagraphStyle(
+        "Contact",
+        fontName="Helvetica",
+        fontSize=8.5,
+        leading=11,
+        alignment=TA_CENTER,
+        spaceAfter=8
+    )
+
+    section_style = ParagraphStyle(
+        "Section",
+        fontName="Helvetica-Bold",
+        fontSize=11,
+        leading=14,
+        alignment=TA_LEFT,
+        spaceBefore=10,
+        spaceAfter=5,
+        textColor=colors.black
+    )
+
+    body_style = ParagraphStyle(
+        "Body",
+        fontName="Helvetica",
+        fontSize=9.2,
+        leading=12.2,
+        alignment=TA_LEFT,
+        spaceAfter=4
+    )
+
+    bullet_style = ParagraphStyle(
+        "Bullet",
+        fontName="Helvetica",
+        fontSize=9.2,
+        leading=12.2,
+        leftIndent=12,
+        firstLineIndent=-8,
+        spaceAfter=3
+    )
+
+    exp_heading_style = ParagraphStyle(
+        "ExperienceHeading",
+        fontName="Helvetica-Bold",
+        fontSize=9.5,
+        leading=12,
+        spaceBefore=7,
+        spaceAfter=3
+    )
 
     story = []
 
+    story.append(Paragraph("Abdelrhman El Shishiny", title_style))
+    story.append(Paragraph(
+        "Date of birth: 28/04/1987 | Nationality: Egyptian | Gender: Male | Phone: (+966) 577534641<br/>"
+        "Email: elshishinyabdelrhman@gmail.com | Address: Jeddah, Saudi Arabia",
+        contact_style
+    ))
+    story.append(HRFlowable(width="100%", thickness=0.8, color=colors.black))
+    story.append(Spacer(1, 8))
+
     lines = text.split("\n")
 
-    for line in lines:
+    section_keywords = [
+        "ABOUT MYSELF",
+        "PROFESSIONAL SUMMARY",
+        "CORE COMPETENCIES",
+        "CORE COMPETENCIES & SKILLS",
+        "STRATEGIC COMPETENCIES",
+        "WORK EXPERIENCE",
+        "PROFESSIONAL EXPERIENCE",
+        "EDUCATION",
+        "EDUCATION & TRAINING",
+        "LANGUAGE SKILLS",
+        "LANGUAGES",
+        "KEY SKILLS"
+    ]
 
-        if line.strip():
+    date_pattern = re.compile(
+        r"(\d{2}/\d{2}/\d{4}\s*-\s*CURRENT|\d{4}\s*-\s*\d{2}/\d{4}|\d{4}\s*-\s*\d{4}|\d{4}\s*-\s*CURRENT)",
+        re.IGNORECASE
+    )
 
-            story.append(
-                Paragraph(
-                    html.escape(line),
-                    styles['BodyText']
-                )
-            )
+    for raw_line in lines:
+        line = raw_line.strip()
 
-            story.append(Spacer(1, 6))
+        if not line:
+            story.append(Spacer(1, 3))
+            continue
+
+        clean_line = html.escape(line)
+
+        normalized = line.upper().replace("•", "").strip()
+
+        if normalized in section_keywords:
+            story.append(Paragraph(normalized, section_style))
+            story.append(HRFlowable(width="100%", thickness=0.35, color=colors.grey))
+            story.append(Spacer(1, 4))
+
+        elif date_pattern.search(line) or " | " in line and any(char.isdigit() for char in line):
+            story.append(Paragraph(clean_line, exp_heading_style))
+
+        elif line.startswith("•") or re.match(r"^\d+\.", line):
+            story.append(Paragraph(clean_line, bullet_style))
+
+        elif line.isupper() and len(line) < 80:
+            story.append(Paragraph(clean_line, exp_heading_style))
+
+        else:
+            story.append(Paragraph(clean_line, body_style))
 
     doc.build(story)
-
     buffer.seek(0)
 
     return buffer
