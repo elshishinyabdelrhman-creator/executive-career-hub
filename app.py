@@ -19,7 +19,7 @@ from reportlab.lib.enums import TA_CENTER
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 
 PREFERRED_MODELS = [
-    "gemini-2.0-flash",
+
     "gemini-1.5-flash",
     "gemini-1.5-flash-002",
     "gemini-1.5-flash-8b",
