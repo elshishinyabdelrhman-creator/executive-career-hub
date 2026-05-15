@@ -11,7 +11,7 @@ import re
 
 # --- 1. DATABASE SETUP ---
 def get_db_connection():
-    conn = sqlite3.connect('career_hub_v13_6.db', check_same_thread=False)
+    conn = sqlite3.connect('career_hub_v14_final.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS applications 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, company TEXT, 
@@ -25,9 +25,9 @@ c = conn.cursor()
 
 # --- 2. CLEANING ENGINE (PROTECTS DATES & TITLES) ---
 def clean_resume_text(text):
+    # يحذف فقط علامات الهاشتاج ويحمي الأرقام والتواريخ والـ Bullets
     text = re.sub(r'#+', '', text)
-    text = re.sub(r'\*', '', text)
-    forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:", "Email:"]
+    forbidden = ["Abdelrhman El Shishiny", "elshishinyabdelrhman@gmail.com", "Jeddah", "Phone:"]
     lines = text.split('\n')
     filtered = [line for line in lines if not any(f.lower() in line.lower() for f in forbidden)]
     return "\n".join(filtered).strip()
@@ -41,7 +41,7 @@ def generate_styled_pdf(resume_data, company_name):
     <head>
         <style>
             @page {{ size: A4; margin: 15mm 15mm; }}
-            body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.4; font-size: 10.5pt; }}
+            body {{ font-family: "Arial", sans-serif; color: #000000; line-height: 1.45; font-size: 10.5pt; }}
             .name-header {{ font-size: 22pt; font-weight: bold; text-align: center; margin-bottom: 2px; }}
             .contact-info {{ font-size: 9.5pt; text-align: center; margin-bottom: 12px; border-bottom: 2px solid #000; padding-bottom: 10px; }}
             .content-box {{ white-space: pre-wrap; text-align: justify; margin-top: 10px; }}
@@ -68,15 +68,15 @@ def apply_executive_css():
         .stApp {{ background-color: #FFFFFF !important; }}
         .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div {{ color: #000000 !important; }}
         .paper-container {{
-            background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #EEEEEE !important;
-            margin: 20px 0px !important; box-shadow: 0px 4px 15px rgba(0,0,0,0.05); font-family: 'Arial';
+            background-color: #FFFFFF !important; padding: 45px !important; border: 1px solid #000000 !important;
+            margin: 20px 0px !important; line-height: 1.6; font-family: 'Arial';
         }}
         .stButton>button {{ background-color: #000000; color: white; border-radius: 0px; width: 100%; height: 3em; font-weight: bold; }}
         </style>
     """, unsafe_allow_html=True)
 
 # --- 4. MAIN APPLICATION ---
-st.set_page_config(page_title="Executive Career Hub", layout="wide")
+st.set_page_config(page_title="Executive Career Hub v14", layout="wide")
 apply_executive_css()
 
 gemini_key = st.secrets.get("GEMINI_API_KEY")
@@ -97,64 +97,58 @@ with tab1:
         if not up_file or not jd_input:
             st.warning("All fields are required.")
         else:
-            with st.spinner("Processing Professional Tailoring..."):
+            with st.spinner("Locking History & Tailoring Current Role..."):
                 try:
                     # 1. Parse PDF
                     reader = PdfReader(up_file)
                     res_text = "".join([p.extract_text() or "" for p in reader.pages])
                     
-                    # 2. Claude Tailoring Call
+                    # 2. Claude Call (Using Most Compatible Model)
                     client = anthropic.Anthropic(api_key=claude_key)
-                    # STABLE PROMPT
-                    prompt = f"""Tailor this resume for {role} at {comp}. 
-                    Requirements:
-                    - Rewrite the 'About Myself' and 'Strategic Competencies' based on the JD.
-                    - Expand CURRENT role (Dabouq) to 12 detailed performance-driven points.
-                    - Keep ALL headers, dates, and content for previous jobs (Ship Hero, Spelenzo, Citi Bank) EXACTLY.
-                    - No markdown. Start with '• ABOUT MYSELF'. 
-                    RESUME: {res_text}"""
+                    prompt = f"""Rewrite the resume for {role} at {comp}.
                     
-                    # STABLE MODEL ID TO AVOID 404
+                    CRITICAL: 
+                    - Keep SHIP HERO, SPELENZO, and CITI BANK sections EXACTLY as they are. Include their dates.
+                    - Expand DABOUQ TRADING CO | 2022 - PRESENT to 12 points relevant to JD.
+                    - Sequence: About Myself > Competencies > Work Experience > Skills > Education > Languages.
+                    - No markdown. Start with '• ABOUT MYSELF'.
+                    RESUME SOURCE: {res_text}"""
+                    
                     resp = client.messages.create(
-                        model="claude-3-sonnet-20240229", 
+                        model="claude-3-haiku-20240307", 
                         max_tokens=4000, 
                         messages=[{"role": "user", "content": prompt}]
                     )
-                    tailored_res = clean_resume_text(resp.content[0].text)
+                    tailored_res = resp.content[0].text
                     
-                    # 3. Gemini Scoring (ATS & Match)
+                    # 3. Gemini Scoring
                     sm, sa = 0, 0
                     try:
                         gem_client = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                        scr = gem_client.models.generate_content(
-                            model="gemini-2.0-flash", 
-                            contents=f"Return MatchScore and ATSScore (0-100) as 'MatchScore, ATSScore' based on: JD: {jd_input} and Resume: {tailored_res}"
-                        )
+                        scr = gem_client.models.generate_content(model="gemini-2.0-flash", contents=f"Return 'MatchScore, ATSScore' based on: JD: {jd_input} and Resume: {tailored_res}")
                         scores = [int(s.strip()) for s in scr.text.split(',') if s.strip().isdigit()]
                         sm, sa = scores[0], scores[1]
                     except:
-                        st.info("AI Scoring bypassed. PDF ready for download.")
+                        st.info("Score system busy. PDF is ready.")
 
-                    # 4. Database Storage
+                    # 4. Save & UI
                     c.execute("INSERT INTO applications (date, company, role, raw_jd, tailored_resume, score_match, score_ats) VALUES (?, ?, ?, ?, ?, ?, ?)",
                               (datetime.now().strftime("%Y-%m-%d %H:%M"), comp, role, jd_input, tailored_res, sm, sa))
                     conn.commit()
                     
-                    # 5. Success UI
-                    st.success(f"Success! Match Score: {sm}% | ATS Optimization: {sa}%")
-                    st.download_button("📥 Download Executive PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
+                    st.success(f"Success! Match: {sm}% | ATS: {sa}%")
+                    st.download_button("📥 Download PDF", generate_styled_pdf(tailored_res, comp), f"{comp}_Resume.pdf")
                     st.markdown(f'<div class="paper-container">{tailored_res}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 with tab2:
     st.header("📊 History Archive")
-    logs = pd.read_sql_query("SELECT id, date, company, role, score_match, score_ats FROM applications ORDER BY id DESC", conn)
+    logs = pd.read_sql_query("SELECT id, date, company, role, score_match FROM applications ORDER BY id DESC", conn)
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
-        st.divider()
         full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
         for _, row in full_logs.iterrows():
-            with st.expander(f"#{row['id']} | {row['company']} | {row['role']} (Match: {row['score_match']}%)"):
-                st.download_button("📥 Download PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"btn_{row['id']}")
+            with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
+                st.download_button("📥 PDF", generate_styled_pdf(row["tailored_resume"], row['company']), f"{row['company']}.pdf", key=f"btn_{row['id']}")
                 st.markdown(f'<div class="paper-container">{row["tailored_resume"]}</div>', unsafe_allow_html=True)
