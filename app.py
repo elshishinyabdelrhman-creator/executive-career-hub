@@ -4,13 +4,18 @@ from pypdf import PdfReader
 import sqlite3
 import pandas as pd
 from datetime import datetime
-from weasyprint import HTML
 import io
 import re
 import json
 import html
 import os
 import time
+
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.enums import TA_CENTER
+
 
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 
@@ -21,17 +26,21 @@ GEMINI_MODELS = [
     "gemini-1.5-flash",
 ]
 
+
 def get_gemini_key():
     try:
         return st.secrets.get("GEMINI_API_KEY")
     except Exception:
         return os.getenv("GEMINI_API_KEY")
 
+
 gemini_key = get_gemini_key()
+
 
 @st.cache_resource
 def get_db_connection():
     conn = sqlite3.connect("career_hub.db", check_same_thread=False)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,17 +53,22 @@ def get_db_connection():
             score_ats INTEGER
         )
     """)
+
     conn.commit()
     return conn
 
+
 conn = get_db_connection()
+
 
 st.markdown("""
 <style>
 .stApp { background-color: #FFFFFF !important; }
+
 .stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp span, .stApp div {
     color: #000000 !important;
 }
+
 .paper-container {
     background-color: #FFFFFF !important;
     padding: 45px !important;
@@ -64,6 +78,7 @@ st.markdown("""
     font-family: Arial;
     white-space: pre-wrap;
 }
+
 .stButton>button {
     background-color: #000 !important;
     color: white !important;
@@ -75,77 +90,124 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 def extract_pdf_text(uploaded_file):
     reader = PdfReader(uploaded_file)
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
     return text.strip()
 
+
 def clean_resume_text(text):
     text = re.sub(r"#+", "", text or "")
+
     forbidden = [
         "Abdelrhman El Shishiny",
         "elshishinyabdelrhman@gmail.com",
         "Jeddah",
         "Phone:"
     ]
+
     lines = text.split("\n")
+
     filtered = [
         line for line in lines
         if not any(f.lower() in line.lower() for f in forbidden)
     ]
+
     return "\n".join(filtered).strip()
 
+
+def safe_pdf_text(text):
+    text = html.escape(text or "")
+    text = text.replace("\n", "<br/>")
+    return text
+
+
 def generate_styled_pdf(resume_data):
-    clean_content = html.escape(clean_resume_text(resume_data))
+    buffer = io.BytesIO()
 
-    html_template = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <style>
-        @page {{ size: A4; margin: 15mm; }}
-        body {{
-            font-family: Arial, sans-serif;
-            color: #000;
-            line-height: 1.45;
-            font-size: 10.5pt;
-        }}
-        .name-header {{
-            font-size: 22pt;
-            font-weight: bold;
-            text-align: center;
-            margin-bottom: 2px;
-        }}
-        .contact-info {{
-            font-size: 9.5pt;
-            text-align: center;
-            margin-bottom: 12px;
-            border-bottom: 2px solid #000;
-            padding-bottom: 10px;
-        }}
-        .content-box {{
-            white-space: pre-wrap;
-            text-align: justify;
-            margin-top: 10px;
-        }}
-        </style>
-    </head>
-    <body>
-        <div class="name-header">Abdelrhman El Shishiny</div>
-        <div class="contact-info">
-            Date of birth: 28/04/1987 | Nationality: Egyptian | Gender: Male | Phone: (+966) 577534641<br>
-            Email: elshishinyabdelrhman@gmail.com | Address: Jeddah, Saudi Arabia
-        </div>
-        <div class="content-box">{clean_content}</div>
-    </body>
-    </html>
-    """
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=28
+    )
 
-    pdf_buffer = io.BytesIO()
-    HTML(string=html_template).write_pdf(target=pdf_buffer)
-    pdf_buffer.seek(0)
-    return pdf_buffer
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=18,
+        alignment=TA_CENTER,
+        spaceAfter=6
+    )
+
+    contact_style = ParagraphStyle(
+        "Contact",
+        parent=styles["BodyText"],
+        fontSize=8.5,
+        alignment=TA_CENTER,
+        leading=11,
+        spaceAfter=10
+    )
+
+    body_style = ParagraphStyle(
+        "ResumeBody",
+        parent=styles["BodyText"],
+        fontSize=9.5,
+        leading=13,
+        spaceAfter=6
+    )
+
+    heading_style = ParagraphStyle(
+        "ResumeHeading",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=11,
+        leading=14,
+        spaceBefore=8,
+        spaceAfter=6
+    )
+
+    story = []
+
+    story.append(Paragraph("Abdelrhman El Shishiny", title_style))
+
+    story.append(Paragraph(
+        "Date of birth: 28/04/1987 | Nationality: Egyptian | Gender: Male | Phone: (+966) 577534641<br/>"
+        "Email: elshishinyabdelrhman@gmail.com | Address: Jeddah, Saudi Arabia",
+        contact_style
+    ))
+
+    story.append(HRFlowable(width="100%"))
+    story.append(Spacer(1, 10))
+
+    clean_text = clean_resume_text(resume_data)
+    lines = clean_text.split("\n")
+
+    for line in lines:
+        line = line.strip()
+
+        if not line:
+            story.append(Spacer(1, 4))
+            continue
+
+        escaped_line = safe_pdf_text(line)
+
+        if line.startswith("• ") and len(line) < 80:
+            story.append(Paragraph(escaped_line, heading_style))
+        else:
+            story.append(Paragraph(escaped_line, body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+
+    return buffer
+
 
 def safe_json_parse(raw_text):
     raw = raw_text.strip()
@@ -159,6 +221,7 @@ def safe_json_parse(raw_text):
             return json.loads(match.group(0))
 
     raise ValueError("AI response was not valid JSON.")
+
 
 def call_gemini_with_fallback(client, prompt):
     last_error = None
@@ -178,6 +241,7 @@ def call_gemini_with_fallback(client, prompt):
             if "429" in error_text:
                 st.warning(f"Quota limit on {model}. Retrying once in 25 seconds...")
                 time.sleep(25)
+
                 try:
                     response = client.models.generate_content(
                         model=model,
@@ -195,9 +259,11 @@ def call_gemini_with_fallback(client, prompt):
 
     raise last_error
 
+
 st.title("Executive Career Hub")
 
 tab1, tab2 = st.tabs(["🚀 Tailor Architect", "📊 History Archive"])
+
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
@@ -213,8 +279,10 @@ with tab1:
     if st.button("✨ GENERATE FULL EXECUTIVE RESUME"):
         if not gemini_key:
             st.error("Missing GEMINI_API_KEY.")
+
         elif not comp.strip() or not role.strip() or not jd_input.strip() or not up_file:
             st.warning("Please fill all fields.")
+
         else:
             with st.spinner("Generating ATS Resume..."):
                 try:
@@ -236,7 +304,8 @@ Required JSON format:
   "tailored_resume": "full rewritten resume text here",
   "match_score": 95,
   "ats_score": 96,
-  "keywords_added": ["keyword 1", "keyword 2", "keyword 3"]
+  "keywords_added": ["keyword 1", "keyword 2", "keyword 3"],
+  "adjusted_skills": ["skill 1", "skill 2", "skill 3"]
 }}
 
 Target Company:
@@ -251,25 +320,62 @@ Job Description:
 Original Resume:
 {res_text}
 
-Rules:
+CRITICAL RULES:
 - Never invent fake companies.
 - Never invent fake degrees.
 - Never invent fake certificates.
 - Never invent fake tools.
-- Never invent fake dates.
+- Never invent fake employment dates.
 - Never invent fake job titles.
 - Preserve factual accuracy.
-- Keep employment dates accurate.
-- Keep SHIP HERO, SPELENZO, and CITI BANK sections exactly as they are, including dates.
+
+DATE RULES:
+- Every work experience MUST include company name, job title, and employment date.
+- Never remove employment dates.
+- Never change employment dates.
+- If a date exists in the original resume, it must appear in the tailored resume.
+- Keep SHIP HERO, SPELENZO, CITI BANK, and DABOUQ TRADING CO dates exactly as written in the original resume.
+- Format every experience heading exactly like:
+  COMPANY NAME | JOB TITLE | DATE
+
+SKILLS RULES:
+- Add a section called:
+• CORE COMPETENCIES & SKILLS
+- Adjust this section to match required and preferred skills from the job description.
+- Include ATS keywords from the JD naturally.
+- Only include skills supported by the original resume or reasonably connected to real experience.
+- Group skills clearly, for example:
+  Sales & Business Development: ...
+  Operations & CRM: ...
+  Digital Marketing: ...
+  Leadership & Team Management: ...
+  Customer Relationship Management: ...
+  Data Analysis & Reporting: ...
+
+RESUME STRUCTURE:
+The resume must follow this exact order:
+
+• ABOUT MYSELF
+
+• CORE COMPETENCIES & SKILLS
+
+• PROFESSIONAL EXPERIENCE
+
+• EDUCATION
+
+• LANGUAGES
+
+EXPERIENCE RULES:
+- Keep SHIP HERO, SPELENZO, and CITI BANK sections factually unchanged, including dates.
 - Expand DABOUQ TRADING CO | 2022 - PRESENT to 12 strong bullet points relevant to the job description.
-- Optimize for ATS matching.
-- Add relevant job description keywords naturally.
-- Resume must start with: • ABOUT MYSELF
-- No markdown headings like # or **.
+- Optimize all bullet points for ATS matching.
+- Add relevant JD keywords naturally.
+- Do not use markdown headings like # or **.
 - Do not include explanations outside JSON.
 """
 
                     response, used_model = call_gemini_with_fallback(client, prompt)
+
                     data = safe_json_parse(response.text)
 
                     tailored_res = data.get("tailored_resume", "").strip()
@@ -296,6 +402,7 @@ Rules:
                         sm,
                         sa
                     ))
+
                     conn.commit()
 
                     safe_company = re.sub(r"[^a-zA-Z0-9_-]+", "_", comp.strip())
@@ -310,6 +417,7 @@ Rules:
                     )
 
                     st.subheader("Generated Resume")
+
                     st.markdown(
                         f'<div class="paper-container">{html.escape(tailored_res)}</div>',
                         unsafe_allow_html=True
@@ -319,8 +427,13 @@ Rules:
                         st.subheader("Keywords Added")
                         st.write(", ".join(data["keywords_added"]))
 
+                    if data.get("adjusted_skills"):
+                        st.subheader("Adjusted Skills")
+                        st.write(", ".join(data["adjusted_skills"]))
+
                 except Exception as e:
                     st.error(f"Error: {type(e).__name__}: {e}")
+
 
 with tab2:
     st.header("📊 History Archive")
@@ -336,6 +449,7 @@ with tab2:
 
     if logs.empty:
         st.info("No applications saved yet.")
+
     else:
         st.dataframe(logs, use_container_width=True, hide_index=True)
 
