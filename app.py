@@ -35,17 +35,26 @@ api_key = get_api_key()
 @st.cache_resource
 def get_db():
     conn = sqlite3.connect("career_hub.db", check_same_thread=False)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT,
             company TEXT,
             role TEXT,
+            raw_jd TEXT,
             tailored_resume TEXT,
             score_match INTEGER,
             score_ats INTEGER
         )
     """)
+
+    # Migration safety for old database versions
+    existing_cols = pd.read_sql_query("PRAGMA table_info(applications)", conn)["name"].tolist()
+
+    if "raw_jd" not in existing_cols:
+        conn.execute("ALTER TABLE applications ADD COLUMN raw_jd TEXT")
+
     conn.commit()
     return conn
 
@@ -56,9 +65,11 @@ conn = get_db()
 st.markdown("""
 <style>
 .stApp { background: white !important; color: black !important; }
+
 .stApp, .stApp p, .stApp div, .stApp span, .stApp label {
     color: black !important;
 }
+
 .paper {
     background: white;
     border: 1px solid #111;
@@ -67,6 +78,7 @@ st.markdown("""
     line-height: 1.45;
     font-family: Arial, sans-serif;
 }
+
 .stButton>button {
     background: black !important;
     color: white !important;
@@ -89,8 +101,10 @@ def extract_pdf(uploaded_file):
 def parse_json(raw):
     raw = raw.replace("```json", "").replace("```", "").strip()
     match = re.search(r"\{.*\}", raw, re.DOTALL)
+
     if not match:
         raise ValueError("Claude did not return valid JSON.")
+
     return json.loads(match.group(0))
 
 
@@ -152,13 +166,23 @@ def as_bullets(items):
 
 def list_to_lines(items):
     if isinstance(items, list):
-        return "\n".join([clean_generated_section(str(x)) for x in items if str(x).strip()])
+        return "\n".join([
+            clean_generated_section(str(x))
+            for x in items
+            if str(x).strip()
+        ])
+
     return clean_generated_section(str(items))
 
 
 def list_to_pipe(items):
     if isinstance(items, list):
-        return " | ".join([clean_generated_section(str(x)) for x in items if str(x).strip()])
+        return " | ".join([
+            clean_generated_section(str(x))
+            for x in items
+            if str(x).strip()
+        ])
+
     return clean_generated_section(str(items))
 
 
@@ -167,7 +191,7 @@ def generate_sections(client, company, role, jd, resume):
 Return ONLY valid JSON.
 
 {{
-  "about": "short ATS summary, 70-90 words",
+  "about": "ATS summary, 120-150 words, strongly aligned to the JD",
   "core_competencies": [
     "DIGITAL MARKETING & MARTECH: skill | skill | skill",
     "AI & MARKETING INNOVATION: skill | skill | skill",
@@ -184,7 +208,11 @@ Return ONLY valid JSON.
     "bullet 7",
     "bullet 8",
     "bullet 9",
-    "bullet 10"
+    "bullet 10",
+    "bullet 11",
+    "bullet 12",
+    "bullet 13",
+    "bullet 14"
   ],
   "key_skills": ["skill 1", "skill 2", "skill 3"],
   "match": 95,
@@ -195,20 +223,23 @@ Target role: {role}
 Target company: {company}
 
 JD:
-{jd[:4000]}
+{jd[:4500]}
 
 Resume:
-{resume[:8000]}
+{resume[:8500]}
 
 Rules:
 - Do NOT write full resume.
 - Do NOT include name, phone, email, address, date of birth, nationality, or gender.
 - Do NOT update old experience.
 - ONLY create about, core_competencies, current_experience for Dabouq, and key_skills.
-- current_experience must be exactly 10 bullets.
+- current_experience must be exactly 14 bullets.
 - Each current_experience item must be one bullet sentence only.
 - Do not include bullet symbols inside JSON values.
-- Match JD required and preferred skills.
+- Each bullet must include JD-relevant keywords where factually reasonable.
+- Use keywords from client engagement, digital marketing, martech, AI, analytics, KSA market, campaign optimization, financial services, B2B/B2B2C, partnerships, and stakeholder management.
+- Core competencies must directly mirror required and preferred JD skills.
+- Key skills must include 35-50 ATS keywords from the JD.
 - Keep facts realistic and based on resume.
 - Strong ATS language.
 - No markdown.
@@ -216,7 +247,7 @@ Rules:
 
     response = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=1800,
+        max_tokens=2600,
         temperature=0.1,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -426,7 +457,7 @@ def generate_pdf(text):
 
 st.title("Executive Career Hub")
 
-tab1, tab2 = st.tabs(["Generate Resume", "History"])
+tab1, tab2 = st.tabs(["Generate Resume", "Application History"])
 
 
 with tab1:
@@ -446,7 +477,6 @@ with tab1:
             with st.spinner("Updating only competencies, current experience, and skills..."):
                 try:
                     resume_text = extract_pdf(file)
-
                     client = anthropic.Anthropic(api_key=api_key)
 
                     data = generate_sections(client, company, role, jd, resume_text)
@@ -457,12 +487,21 @@ with tab1:
 
                     conn.execute("""
                         INSERT INTO applications
-                        (date, company, role, tailored_resume, score_match, score_ats)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        (
+                            date,
+                            company,
+                            role,
+                            raw_jd,
+                            tailored_resume,
+                            score_match,
+                            score_ats
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, (
                         datetime.now().strftime("%Y-%m-%d %H:%M"),
                         company,
                         role,
+                        jd,
                         final_resume,
                         match,
                         ats
@@ -491,35 +530,82 @@ with tab1:
 
 
 with tab2:
+    st.header("Application History")
+
     logs = pd.read_sql_query(
-        "SELECT id, date, company, role, score_match, score_ats FROM applications ORDER BY id DESC",
+        """
+        SELECT *
+        FROM applications
+        ORDER BY id DESC
+        """,
         conn
     )
 
     if logs.empty:
-        st.info("No history yet.")
+        st.info("No applications yet.")
 
     else:
-        st.dataframe(logs, use_container_width=True, hide_index=True)
+        for _, row in logs.iterrows():
+            company_value = row.get("company", "")
+            role_value = row.get("role", "")
+            match_value = row.get("score_match", 0)
+            ats_value = row.get("score_ats", 0)
 
-        full_logs = pd.read_sql_query(
-            "SELECT * FROM applications ORDER BY id DESC",
-            conn
-        )
+            with st.expander(
+                f"{company_value} | {role_value} | Match {match_value}% | ATS {ats_value}%"
+            ):
+                st.markdown("### Company")
+                st.write(company_value)
 
-        for _, row in full_logs.iterrows():
-            with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
-                safe_company = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(row["company"]))
+                st.markdown("### Role")
+                st.write(role_value)
 
-                st.download_button(
-                    "Download PDF",
-                    data=generate_pdf(row["tailored_resume"]),
-                    file_name=f"{safe_company}_resume.pdf",
-                    mime="application/pdf",
-                    key=f"pdf_{row['id']}"
+                st.markdown("### Date")
+                st.write(row.get("date", ""))
+
+                st.markdown("### Scores")
+                st.write(f"Match: {match_value}% | ATS: {ats_value}%")
+
+                st.markdown("### Job Description")
+                st.text_area(
+                    "Saved JD",
+                    row.get("raw_jd", "") or "",
+                    height=250,
+                    key=f"jd_{row['id']}"
                 )
 
+                st.markdown("### Resume")
                 st.markdown(
-                    f'<div class="paper">{html.escape(row["tailored_resume"])}</div>',
+                    f'<div class="paper">{html.escape(row.get("tailored_resume", "") or "")}</div>',
                     unsafe_allow_html=True
                 )
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    safe_company = re.sub(
+                        r"[^a-zA-Z0-9_-]+",
+                        "_",
+                        str(company_value)
+                    )
+
+                    st.download_button(
+                        "Download PDF",
+                        data=generate_pdf(row.get("tailored_resume", "") or ""),
+                        file_name=f"{safe_company}_resume.pdf",
+                        mime="application/pdf",
+                        key=f"pdf_{row['id']}"
+                    )
+
+                with col2:
+                    if st.button(
+                        "Delete Application",
+                        key=f"delete_{row['id']}"
+                    ):
+                        conn.execute(
+                            "DELETE FROM applications WHERE id=?",
+                            (int(row["id"]),)
+                        )
+                        conn.commit()
+                        st.success("Application deleted.")
+                        st.rerun()
