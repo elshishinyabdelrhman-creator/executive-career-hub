@@ -83,7 +83,7 @@ def extract_pdf(uploaded_file):
     reader = PdfReader(uploaded_file)
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
     text = re.sub(r"\s+", " ", text)
-    return text[:10000]
+    return text[:9000]
 
 
 def parse_json(raw):
@@ -96,6 +96,7 @@ def parse_json(raw):
 
 def clean_generated_section(text):
     text = text or ""
+
     forbidden = [
         "Abdelrhman El Shishiny",
         "Date of birth",
@@ -106,15 +107,59 @@ def clean_generated_section(text):
         "Address",
         "Sharbatly",
         "Prince Metab",
-        "Jeddah, Saudi Arabia"
+        "Saudi Arabia"
     ]
 
     lines = []
-    for line in text.split("\n"):
-        if not any(word.lower() in line.lower() for word in forbidden):
-            lines.append(line.strip())
 
-    return "\n".join([x for x in lines if x]).strip()
+    for line in str(text).split("\n"):
+        line = line.strip()
+
+        if not line:
+            continue
+
+        if any(word.lower() in line.lower() for word in forbidden):
+            continue
+
+        line = re.sub(r"^[•\-\d\.\)\s]+", "", line).strip()
+        lines.append(line)
+
+    return "\n".join(lines).strip()
+
+
+def as_bullets(items):
+    if isinstance(items, list):
+        clean_items = []
+
+        for item in items:
+            item = clean_generated_section(str(item))
+            if item:
+                clean_items.append(f"• {item}")
+
+        return "\n".join(clean_items)
+
+    text = clean_generated_section(str(items))
+    parts = re.split(r"\n+|(?<=\.)\s+(?=[A-Z])", text)
+
+    clean_items = []
+    for part in parts:
+        part = part.strip()
+        if len(part) > 20:
+            clean_items.append(f"• {part}")
+
+    return "\n".join(clean_items)
+
+
+def list_to_lines(items):
+    if isinstance(items, list):
+        return "\n".join([clean_generated_section(str(x)) for x in items if str(x).strip()])
+    return clean_generated_section(str(items))
+
+
+def list_to_pipe(items):
+    if isinstance(items, list):
+        return " | ".join([clean_generated_section(str(x)) for x in items if str(x).strip()])
+    return clean_generated_section(str(items))
 
 
 def generate_sections(client, company, role, jd, resume):
@@ -122,10 +167,26 @@ def generate_sections(client, company, role, jd, resume):
 Return ONLY valid JSON.
 
 {{
-  "about": "...",
-  "core_competencies": "...",
-  "current_experience": "...",
-  "key_skills": "...",
+  "about": "short ATS summary, 70-90 words",
+  "core_competencies": [
+    "DIGITAL MARKETING & MARTECH: skill | skill | skill",
+    "AI & MARKETING INNOVATION: skill | skill | skill",
+    "CLIENT ENGAGEMENT & PARTNERSHIPS: skill | skill | skill",
+    "KSA MARKET EXPERTISE: skill | skill | skill"
+  ],
+  "current_experience": [
+    "bullet 1",
+    "bullet 2",
+    "bullet 3",
+    "bullet 4",
+    "bullet 5",
+    "bullet 6",
+    "bullet 7",
+    "bullet 8",
+    "bullet 9",
+    "bullet 10"
+  ],
+  "key_skills": ["skill 1", "skill 2", "skill 3"],
   "match": 95,
   "ats": 96
 }}
@@ -134,28 +195,29 @@ Target role: {role}
 Target company: {company}
 
 JD:
-{jd[:4500]}
+{jd[:4000]}
 
 Resume:
-{resume[:9000]}
+{resume[:8000]}
 
 Rules:
+- Do NOT write full resume.
 - Do NOT include name, phone, email, address, date of birth, nationality, or gender.
-- Do NOT rewrite old roles.
-- Only update ABOUT, CORE COMPETENCIES, DABOUQ current role, and KEY SKILLS.
-- Keep Dabouq date exactly: 13/01/2025 - CURRENT | JEDDAH, SAUDI ARABIA
-- Current role title: MARKETING & BUSINESS DEVELOPMENT DIRECTOR
-- Current company: Dabouq Trading Co. (Cars & E-Commerce)
-- current_experience must be 10-12 bullets.
-- Match required/preferred JD skills.
-- Keep everything factual and ATS-friendly.
+- Do NOT update old experience.
+- ONLY create about, core_competencies, current_experience for Dabouq, and key_skills.
+- current_experience must be exactly 10 bullets.
+- Each current_experience item must be one bullet sentence only.
+- Do not include bullet symbols inside JSON values.
+- Match JD required and preferred skills.
+- Keep facts realistic and based on resume.
+- Strong ATS language.
 - No markdown.
 """
 
     response = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=2200,
-        temperature=0.2,
+        max_tokens=1800,
+        temperature=0.1,
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -164,43 +226,50 @@ Rules:
 
 def build_final_resume(data):
     about = clean_generated_section(data.get("about", ""))
-    core = clean_generated_section(data.get("core_competencies", ""))
-    current = clean_generated_section(data.get("current_experience", ""))
-    skills = clean_generated_section(data.get("key_skills", ""))
+    core_text = list_to_lines(data.get("core_competencies", []))
+    current_bullets = as_bullets(data.get("current_experience", []))
+    skills_text = list_to_pipe(data.get("key_skills", []))
 
     return f"""ABOUT MYSELF
 {about}
 
 CORE COMPETENCIES
-{core}
+{core_text}
 
 WORK EXPERIENCE
 
 13/01/2025 - CURRENT | JEDDAH, SAUDI ARABIA
 MARKETING & BUSINESS DEVELOPMENT DIRECTOR
 Dabouq Trading Co. (Cars & E-Commerce)
-{current}
+{current_bullets}
 
 2020 - 01/2025 | JEDDAH, SAUDI ARABIA
 MARKETING AND BUSINESS DEVELOPMENT DIRECTOR
 Ship Hero / Spelenzo
-• Developed social media marketing strategies with cohesive messaging across multiple platforms.
-• Delivered marketing strategy and consultative services with consistently high client satisfaction.
-• Cultivated partnerships with influencers and media partners to drive awareness and growth.
-• Oversaw multi-channel marketing campaigns across digital, CRM, email, SEO, PPC, and social channels.
-• Streamlined workflows with marketing automation tools and CRM systems.
-• Conducted market research and analysis to identify growth opportunities.
-• Prepared client proposals, business presentations, and sales pitches for senior stakeholders.
-• Negotiated contracts, managed client records, and supported business expansion.
+• Developed strategy for social media marketing with cohesive messaging across multiple platforms.
+• Delivered top-quality marketing strategy and consultative services with consistently high client satisfaction scores.
+• Cultivated strong partnerships with key influencers, securing valuable media coverage and endorsements to drive growth.
+• Oversaw development and execution of multi-channel marketing campaigns to drive growth.
+• Boosted click-through rates with targeted email marketing campaigns.
+• Reduced expenditures by streamlining workflows with marketing automation tools.
+• Conducted market research and analysis to identify emerging opportunities and maintain a competitive market edge.
+• Leveraged SEO best practices to optimise website content, resulting in increased organic traffic and improved keyword rankings.
+• Maintained client records in CRM systems, ensuring streamlined data processes.
+• Prepared and delivered winning client proposals, business presentations, and sales pitches to C-level executives.
 
 2013 - 2020 | JEDDAH, SAUDI ARABIA
 SALES AND MARKETING EXECUTIVE
 Spelenzo
-• Managed clients across perfumes, luxury fashion, watches, cosmetics, and telecommunications.
-• Planned and optimized SEO, SEM, email, social media, display, PPC, and retargeting campaigns.
-• Measured campaign performance and analyzed data to optimize digital strategy.
-• Developed sales promotions and content initiatives to increase revenue and web traffic.
-• Identified trends and insights to optimize digital marketing spend and conversion performance.
+• Handled clients across perfumes, luxury fashion, watches, cosmetics, and telecommunications including Rubaiyat, Arabian Oud, Casio, and Zain.
+• Drove revenue growth across GCC through display advertising, PPC, retargeting, and paid social.
+• Planned and optimized digital marketing campaigns across web, SEO/SEM, email, social media, and display advertising.
+• Planned, executed, and measured experiments and conversion tests.
+• Analyzed online customer behavior and updated action plans to reach defined goals.
+• Monitored brand online reputation and awareness through relevant online presence and content management.
+• Measured and reported performance of digital marketing campaigns, analyzing data to optimize strategy.
+• Developed and executed sales promotions, increasing revenue through targeted campaigns.
+• Identified trends and insights to optimize digital marketing spend.
+• Improved email marketing campaigns and increased web traffic through content initiatives.
 
 2009 - 2013 | CAIRO, EGYPT
 SENIOR RELATIONSHIP MANAGER
@@ -224,7 +293,7 @@ German: B2
 French: B2
 
 KEY SKILLS
-{skills}
+{skills_text}
 """.strip()
 
 
@@ -299,11 +368,13 @@ def generate_pdf(text):
     story = []
 
     story.append(Paragraph("Abdelrhman El Shishiny", title_style))
+
     story.append(Paragraph(
         "Date of birth: 28/04/1987 | Nationality: Egyptian | Gender: Male | Phone: (+966) 577534641<br/>"
         "Email: elshishinyabdelrhman@gmail.com | Address: Jeddah, Saudi Arabia",
         contact_style
     ))
+
     story.append(HRFlowable(width="100%", thickness=0.8, color=colors.black))
     story.append(Spacer(1, 7))
 
@@ -316,7 +387,10 @@ def generate_pdf(text):
         "KEY SKILLS"
     }
 
-    date_pattern = re.compile(r"(\d{2}/\d{2}/\d{4}\s*-\s*CURRENT|\d{4}\s*-\s*\d{2}/\d{4}|\d{4}\s*-\s*\d{4})", re.I)
+    date_pattern = re.compile(
+        r"(\d{2}/\d{2}/\d{4}\s*-\s*CURRENT|\d{4}\s*-\s*\d{2}/\d{4}|\d{4}\s*-\s*\d{4})",
+        re.I
+    )
 
     for raw in text.split("\n"):
         line = raw.strip()
@@ -339,7 +413,7 @@ def generate_pdf(text):
         elif line.isupper() and len(line) < 85:
             story.append(Paragraph(escaped, exp_heading_style))
 
-        elif line.startswith("•") or re.match(r"^\d+\.", line):
+        elif line.startswith("•"):
             story.append(Paragraph(escaped, bullet_style))
 
         else:
@@ -354,6 +428,7 @@ st.title("Executive Career Hub")
 
 tab1, tab2 = st.tabs(["Generate Resume", "History"])
 
+
 with tab1:
     company = st.text_input("Target Company")
     role = st.text_input("Target Role")
@@ -363,8 +438,10 @@ with tab1:
     if st.button("Generate ATS Resume"):
         if not api_key:
             st.error("Missing ANTHROPIC_API_KEY.")
+
         elif not company or not role or not jd or not file:
             st.warning("Fill all fields.")
+
         else:
             with st.spinner("Updating only competencies, current experience, and skills..."):
                 try:
@@ -421,10 +498,14 @@ with tab2:
 
     if logs.empty:
         st.info("No history yet.")
+
     else:
         st.dataframe(logs, use_container_width=True, hide_index=True)
 
-        full_logs = pd.read_sql_query("SELECT * FROM applications ORDER BY id DESC", conn)
+        full_logs = pd.read_sql_query(
+            "SELECT * FROM applications ORDER BY id DESC",
+            conn
+        )
 
         for _, row in full_logs.iterrows():
             with st.expander(f"#{row['id']} | {row['company']} | {row['role']}"):
