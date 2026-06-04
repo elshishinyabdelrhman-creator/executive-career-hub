@@ -240,15 +240,23 @@ Company Style Rules:
 - Enterprise: emphasize governance, cross-functional leadership, scale, stakeholder influence, KPIs, performance reporting.
 - Big Tech: emphasize innovation, experimentation, product thinking, analytics, automation, user-centric growth, cross-functional execution.
 - Startup: emphasize builder mindset, growth, execution, agility, launch, scale, revenue, ownership.
-- E-commerce/Retail: emphasize commercial growth, sales strategy, online revenue growth, customer acquisition, retention, AOV growth, basket size optimization, conversion optimization, assortment collaboration, pricing strategy, promotional planning, vendor relationships, supplier negotiations, campaign KPIs, CRM, performance marketing, customer lifecycle, UX/UI collaboration, and profitability.
+- E-commerce/Retail: position the candidate as a transferable e-commerce commercial growth leader. Use language around online sales growth, commercial planning, vendor partnerships, pricing and promotions, assortment collaboration, product mix optimization, customer acquisition, retention, AOV growth, basket size optimization, conversion optimization, CRM, sales forecasting, KPIs, UX/UI collaboration, profitability, and cross-functional execution.
 - Consulting: emphasize advisory, stakeholder management, transformation, strategy, presentations, analysis, executive communication.
 - Automotive: emphasize sales growth, lead generation, digital acquisition, partnerships, customer journey, marketplace performance.
 - Healthcare: emphasize ethical marketing, patient/customer trust, compliance, partnerships, digital engagement.
 
 Scoring Rules:
-- match and ats must reflect the generated resume after optimization.
-- If the role is close to candidate experience, score 92-98.
-- If the role has major unsupported requirements, score lower and explain through missing_keywords and improvement_suggestions.
+- Score based on transferable relevance, not exact industry match only.
+- Do NOT heavily penalize lack of grocery-specific background if the resume proves e-commerce, retail, commercial growth, sales strategy, partnerships, CRM, promotions, customer acquisition, conversion optimization, vendor relationships, and digital platform experience.
+- For retail/e-commerce grocery roles, treat automotive/e-commerce platform experience as transferable e-commerce commercial experience.
+- If the candidate has e-commerce, partnerships, CRM, performance marketing, sales growth, customer lifecycle, promotions, and vendor/partner management, match and ATS should normally be 92-97.
+- Only score below 90 if the JD requires a non-transferable license, technical certification, direct grocery buying/category ownership, or supply-chain operations ownership that is not present.
+- missing_keywords must NOT include broad terms already represented in the generated resume.
+- missing_keywords should only include truly unsupported hard requirements.
+- Do NOT list "e-commerce grocery specific experience" as missing.
+- Do NOT list "formal grocery retail operations background" as missing unless the JD explicitly says it is mandatory.
+- Do NOT list "pricing strategy execution in grocery context" as missing if pricing strategy, promotions, profitability, vendor relationships, or commercial planning are added to the resume.
+- Target match and ATS above 95 when transferable experience strongly supports the role.
 """
 
     response = client.messages.create(
@@ -415,7 +423,7 @@ with tab1:
         elif not company or not role or not jd or not file:
             st.warning("Fill all fields.")
         else:
-            with st.spinner("Optimizing resume for 95%+ ATS target..."):
+            with st.spinner("Optimizing resume for strongest transferable ATS match..."):
                 try:
                     current_hash = make_hash(company, role, jd)
                     resume_text = extract_pdf(file)
