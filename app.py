@@ -104,14 +104,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def jd_hash(company, role, jd):
+def make_hash(company, role, jd):
     value = f"{company}|{role}|{jd}".lower().strip()
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 def extract_pdf(uploaded_file):
     reader = PdfReader(uploaded_file)
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    return re.sub(r"\s+", " ", text)[:9000]
+    return re.sub(r"\s+", " ", text)[:10000]
 
 def parse_json(raw):
     raw = raw.replace("```json", "").replace("```", "").strip()
@@ -165,18 +165,19 @@ def generate_sections(client, company, role, jd, resume):
 Return ONLY valid JSON.
 
 {{
-  "detected_company_style": "Financial Services / Enterprise / Big Tech / Startup / Retail / Consulting / E-commerce / Other",
+  "detected_company_style": "Financial Services / Enterprise / Big Tech / Startup / Retail / Consulting / E-commerce / Healthcare / Real Estate / Automotive / Other",
   "company_type": "short company type",
   "company_size": "Startup / Mid-Market / Enterprise / Global Enterprise",
   "company_focus": "short focus",
   "style_reason": "short reason",
-  "executive_profile": "premium ATS summary 120-150 words",
+  "executive_profile": "premium ATS summary 130-160 words",
   "strategic_competencies": [
-    "GROWTH & COMMERCIAL STRATEGY: skill | skill | skill",
+    "COMMERCIAL GROWTH & BUSINESS STRATEGY: skill | skill | skill",
     "DIGITAL MARKETING & MARTECH: skill | skill | skill",
-    "AI & AUTOMATION: skill | skill | skill",
-    "CLIENT ENGAGEMENT & PARTNERSHIPS: skill | skill | skill",
-    "MARKET EXPERTISE: skill | skill | skill"
+    "SALES DEVELOPMENT & CUSTOMER ACQUISITION: skill | skill | skill",
+    "AI, DATA & PERFORMANCE ANALYTICS: skill | skill | skill",
+    "PARTNERSHIPS & STAKEHOLDER MANAGEMENT: skill | skill | skill",
+    "MARKET & INDUSTRY EXPERTISE: skill | skill | skill"
   ],
   "current_experience": [
     "bullet 1",
@@ -192,7 +193,9 @@ Return ONLY valid JSON.
     "bullet 11",
     "bullet 12",
     "bullet 13",
-    "bullet 14"
+    "bullet 14",
+    "bullet 15",
+    "bullet 16"
   ],
   "key_skills": ["skill 1", "skill 2", "skill 3"],
   "missing_keywords": ["keyword 1", "keyword 2"],
@@ -207,38 +210,51 @@ Company: {company}
 Role: {role}
 
 JD:
-{jd[:4500]}
+{jd[:5000]}
 
 Resume:
-{resume[:8500]}
+{resume[:9000]}
 
-Rules:
-- First detect the best company style from company name and JD.
-- Adapt tone to detected style.
-- Financial Services: emphasize client engagement, partnerships, compliance, stakeholders, analytics.
-- Enterprise: emphasize governance, cross-functional leadership, scale, stakeholder influence.
-- Big Tech: emphasize innovation, experimentation, product thinking, analytics, user-centric growth.
-- Startup: emphasize builder mindset, growth, execution, agility, launch, scale.
-- E-commerce/Retail: emphasize acquisition, retention, CRM, performance marketing, customer lifecycle.
+Universal ATS Rules:
+- First detect the company style and role family from the company name and JD.
+- Then rewrite ONLY the allowed sections to maximize ATS alignment.
+- Target ATS score should be 95+ when the candidate has transferable experience.
+- Do NOT lie, do NOT invent employers, titles, degrees, certificates, or dates.
+- You may translate existing experience into role-relevant language if factually reasonable.
+- Use exact JD phrases naturally inside executive_profile, strategic_competencies, current_experience, and key_skills.
+- Do NOT list a keyword as missing if it has been added anywhere in the generated resume sections.
+- missing_keywords should only contain important requirements that are truly unsupported by the resume.
 - Do NOT write full resume.
 - Do NOT include name, phone, email, address, DOB, nationality, or gender.
 - Do NOT rewrite old roles.
-- Only update executive_profile, strategic_competencies, current_experience, key_skills.
-- current_experience must be exactly 14 bullets.
+- Only update executive_profile, strategic_competencies, current_experience, and key_skills.
+- current_experience must be exactly 16 bullets.
 - Every current_experience item must be one bullet sentence only.
 - No bullet symbols inside JSON values.
 - Use strong action verbs.
-- Match JD keywords truthfully.
-- Keep facts realistic and based on resume.
-- missing_keywords should include important JD keywords still weak or absent.
-- improvement_suggestions should say what to improve to reach 95%+.
+- Keep all wording professional, persuasive, executive, and recruiter-friendly.
 - No markdown.
+
+Company Style Rules:
+- Financial Services: emphasize client engagement, partnerships, compliance, stakeholders, analytics, commercial growth, banking/financial relationship management.
+- Enterprise: emphasize governance, cross-functional leadership, scale, stakeholder influence, KPIs, performance reporting.
+- Big Tech: emphasize innovation, experimentation, product thinking, analytics, automation, user-centric growth, cross-functional execution.
+- Startup: emphasize builder mindset, growth, execution, agility, launch, scale, revenue, ownership.
+- E-commerce/Retail: emphasize commercial growth, sales strategy, online revenue growth, customer acquisition, retention, AOV growth, basket size optimization, conversion optimization, assortment collaboration, pricing strategy, promotional planning, vendor relationships, supplier negotiations, campaign KPIs, CRM, performance marketing, customer lifecycle, UX/UI collaboration, and profitability.
+- Consulting: emphasize advisory, stakeholder management, transformation, strategy, presentations, analysis, executive communication.
+- Automotive: emphasize sales growth, lead generation, digital acquisition, partnerships, customer journey, marketplace performance.
+- Healthcare: emphasize ethical marketing, patient/customer trust, compliance, partnerships, digital engagement.
+
+Scoring Rules:
+- match and ats must reflect the generated resume after optimization.
+- If the role is close to candidate experience, score 92-98.
+- If the role has major unsupported requirements, score lower and explain through missing_keywords and improvement_suggestions.
 """
 
     response = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=3300,
-        temperature=0.15,
+        max_tokens=3800,
+        temperature=0.12,
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -399,14 +415,13 @@ with tab1:
         elif not company or not role or not jd or not file:
             st.warning("Fill all fields.")
         else:
-            with st.spinner("Detecting company style, ATS gaps, and tailoring resume..."):
+            with st.spinner("Optimizing resume for 95%+ ATS target..."):
                 try:
-                    current_hash = jd_hash(company, role, jd)
+                    current_hash = make_hash(company, role, jd)
                     resume_text = extract_pdf(file)
 
                     client = anthropic.Anthropic(api_key=api_key)
                     data = generate_sections(client, company, role, jd, resume_text)
-
                     final_resume = build_resume(data)
 
                     detected_style = data.get("detected_company_style", "Auto")
