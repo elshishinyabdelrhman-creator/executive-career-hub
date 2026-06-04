@@ -1,14 +1,9 @@
 import streamlit as st
 import anthropic
 from pypdf import PdfReader
-import sqlite3
-import pandas as pd
+import sqlite3, pandas as pd
 from datetime import datetime
-import io
-import re
-import json
-import html
-import os
+import io, re, json, html, os, hashlib
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
 from reportlab.lib.styles import ParagraphStyle
@@ -16,11 +11,19 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib import colors
 
-
 st.set_page_config(page_title="Executive Career Hub", layout="wide")
 
 CLAUDE_MODEL = "claude-haiku-4-5"
 
+USER_PROFILE = {
+    "name": "Abdelrhman El Shishiny",
+    "dob": "28/04/1987",
+    "nationality": "Egyptian",
+    "gender": "Male",
+    "phone": "(+966) 577534641",
+    "email": "elshishinyabdelrhman@gmail.com",
+    "address": "Jeddah, Saudi Arabia",
+}
 
 def get_api_key():
     try:
@@ -28,9 +31,7 @@ def get_api_key():
     except Exception:
         return os.getenv("ANTHROPIC_API_KEY")
 
-
 api_key = get_api_key()
-
 
 @st.cache_resource
 def get_db():
@@ -43,36 +44,47 @@ def get_db():
             company TEXT,
             role TEXT,
             raw_jd TEXT,
-            resume_style TEXT,
+            jd_hash TEXT,
+            detected_style TEXT,
+            company_type TEXT,
+            company_size TEXT,
+            company_focus TEXT,
             tailored_resume TEXT,
             score_match INTEGER,
-            score_ats INTEGER
+            score_ats INTEGER,
+            interview_probability INTEGER,
+            missing_keywords TEXT,
+            improvement_suggestions TEXT
         )
     """)
 
-    existing_cols = pd.read_sql_query("PRAGMA table_info(applications)", conn)["name"].tolist()
+    cols = pd.read_sql_query("PRAGMA table_info(applications)", conn)["name"].tolist()
 
-    if "raw_jd" not in existing_cols:
-        conn.execute("ALTER TABLE applications ADD COLUMN raw_jd TEXT")
+    needed = {
+        "raw_jd": "TEXT",
+        "jd_hash": "TEXT",
+        "detected_style": "TEXT",
+        "company_type": "TEXT",
+        "company_size": "TEXT",
+        "company_focus": "TEXT",
+        "interview_probability": "INTEGER",
+        "missing_keywords": "TEXT",
+        "improvement_suggestions": "TEXT"
+    }
 
-    if "resume_style" not in existing_cols:
-        conn.execute("ALTER TABLE applications ADD COLUMN resume_style TEXT")
+    for col, typ in needed.items():
+        if col not in cols:
+            conn.execute(f"ALTER TABLE applications ADD COLUMN {col} {typ}")
 
     conn.commit()
     return conn
 
-
 conn = get_db()
-
 
 st.markdown("""
 <style>
 .stApp { background: white !important; color: black !important; }
-
-.stApp, .stApp p, .stApp div, .stApp span, .stApp label {
-    color: black !important;
-}
-
+.stApp, .stApp p, .stApp div, .stApp span, .stApp label { color: black !important; }
 .paper {
     background: white;
     border: 1px solid #111;
@@ -81,7 +93,6 @@ st.markdown("""
     line-height: 1.45;
     font-family: Arial, sans-serif;
 }
-
 .stButton>button {
     background: black !important;
     color: white !important;
@@ -93,27 +104,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def jd_hash(company, role, jd):
+    value = f"{company}|{role}|{jd}".lower().strip()
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 def extract_pdf(uploaded_file):
     reader = PdfReader(uploaded_file)
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    text = re.sub(r"\s+", " ", text)
-    return text[:9000]
-
+    return re.sub(r"\s+", " ", text)[:9000]
 
 def parse_json(raw):
     raw = raw.replace("```json", "").replace("```", "").strip()
     match = re.search(r"\{.*\}", raw, re.DOTALL)
-
     if not match:
         raise ValueError("Claude did not return valid JSON.")
-
     return json.loads(match.group(0))
 
-
-def clean_generated_section(text):
-    text = text or ""
-
+def clean_text(text):
     forbidden = [
         "Abdelrhman El Shishiny",
         "Date of birth",
@@ -121,119 +128,55 @@ def clean_generated_section(text):
         "Gender",
         "Phone",
         "Email",
-        "Address",
-        "Sharbatly",
-        "Prince Metab",
-        "Saudi Arabia"
+        "Address"
     ]
 
     lines = []
-
-    for line in str(text).split("\n"):
+    for line in str(text or "").split("\n"):
         line = line.strip()
-
         if not line:
             continue
-
-        if any(word.lower() in line.lower() for word in forbidden):
+        if any(x.lower() in line.lower() for x in forbidden):
             continue
-
         line = re.sub(r"^[•\-\d\.\)\s]+", "", line).strip()
         lines.append(line)
 
     return "\n".join(lines).strip()
 
-
 def as_bullets(items):
     if isinstance(items, list):
-        clean_items = []
+        return "\n".join(f"• {clean_text(x)}" for x in items if clean_text(x))
 
-        for item in items:
-            item = clean_generated_section(str(item))
-            if item:
-                clean_items.append(f"• {item}")
-
-        return "\n".join(clean_items)
-
-    text = clean_generated_section(str(items))
-    parts = re.split(r"\n+|(?<=\.)\s+(?=[A-Z])", text)
-
-    clean_items = []
-    for part in parts:
-        part = part.strip()
-        if len(part) > 20:
-            clean_items.append(f"• {part}")
-
-    return "\n".join(clean_items)
-
+    parts = re.split(r"\n+|(?<=\.)\s+(?=[A-Z])", clean_text(items))
+    return "\n".join(f"• {p.strip()}" for p in parts if len(p.strip()) > 20)
 
 def list_to_lines(items):
     if isinstance(items, list):
-        return "\n".join([
-            clean_generated_section(str(x))
-            for x in items
-            if str(x).strip()
-        ])
-
-    return clean_generated_section(str(items))
-
+        return "\n".join(clean_text(x) for x in items if clean_text(x))
+    return clean_text(items)
 
 def list_to_pipe(items):
     if isinstance(items, list):
-        return " | ".join([
-            clean_generated_section(str(x))
-            for x in items
-            if str(x).strip()
-        ])
+        return " | ".join(clean_text(x) for x in items if clean_text(x))
+    return clean_text(items)
 
-    return clean_generated_section(str(items))
-
-
-def get_style_rules(style):
-    rules = {
-        "Executive": """
-Use senior executive positioning, commercial impact, strategic leadership, market expansion, stakeholder influence, and transformation language.
-Make the resume sound premium, confident, and boardroom-ready.
-""",
-        "Corporate": """
-Use polished corporate language suitable for banks, global enterprises, payment companies, and consulting environments.
-Prioritize governance, stakeholder management, measurable business outcomes, and cross-functional collaboration.
-""",
-        "Startup": """
-Use growth-focused, agile, builder-oriented language.
-Emphasize experimentation, speed, ownership, scaling, automation, and commercial traction.
-""",
-        "ATS Maximum": """
-Prioritize ATS keyword density while keeping natural executive language.
-Mirror required and preferred skills from the JD aggressively but truthfully.
-""",
-        "Concise": """
-Use concise, direct, high-impact language.
-Avoid long sentences. Keep bullets sharp and recruiter-friendly.
-""",
-        "Achievement Focused": """
-Prioritize measurable impact, outcomes, growth, optimization, revenue, acquisition, retention, efficiency, and performance improvement.
-Every bullet should imply business value.
-"""
-    }
-
-    return rules.get(style, rules["Executive"])
-
-
-def generate_sections(client, company, role, jd, resume, resume_style):
-    style_rules = get_style_rules(resume_style)
-
+def generate_sections(client, company, role, jd, resume):
     prompt = f"""
 Return ONLY valid JSON.
 
 {{
-  "executive_profile": "premium ATS summary, 120-150 words, strongly aligned to the JD",
+  "detected_company_style": "Financial Services / Enterprise / Big Tech / Startup / Retail / Consulting / E-commerce / Other",
+  "company_type": "short company type",
+  "company_size": "Startup / Mid-Market / Enterprise / Global Enterprise",
+  "company_focus": "short focus",
+  "style_reason": "short reason",
+  "executive_profile": "premium ATS summary 120-150 words",
   "strategic_competencies": [
-    "GROWTH MARKETING & DEMAND GENERATION: skill | skill | skill",
+    "GROWTH & COMMERCIAL STRATEGY: skill | skill | skill",
     "DIGITAL MARKETING & MARTECH: skill | skill | skill",
-    "AI & MARKETING INNOVATION: skill | skill | skill",
+    "AI & AUTOMATION: skill | skill | skill",
     "CLIENT ENGAGEMENT & PARTNERSHIPS: skill | skill | skill",
-    "KSA MARKET EXPERTISE: skill | skill | skill"
+    "MARKET EXPERTISE: skill | skill | skill"
   ],
   "current_experience": [
     "bullet 1",
@@ -252,17 +195,16 @@ Return ONLY valid JSON.
     "bullet 14"
   ],
   "key_skills": ["skill 1", "skill 2", "skill 3"],
+  "missing_keywords": ["keyword 1", "keyword 2"],
   "missing_keywords_added": ["keyword 1", "keyword 2"],
+  "improvement_suggestions": ["suggestion 1", "suggestion 2"],
+  "interview_probability": 90,
   "match": 95,
   "ats": 96
 }}
 
-Target role: {role}
-Target company: {company}
-Resume style: {resume_style}
-
-Style rules:
-{style_rules}
+Company: {company}
+Role: {role}
 
 JD:
 {jd[:4500]}
@@ -271,52 +213,50 @@ Resume:
 {resume[:8500]}
 
 Rules:
+- First detect the best company style from company name and JD.
+- Adapt tone to detected style.
+- Financial Services: emphasize client engagement, partnerships, compliance, stakeholders, analytics.
+- Enterprise: emphasize governance, cross-functional leadership, scale, stakeholder influence.
+- Big Tech: emphasize innovation, experimentation, product thinking, analytics, user-centric growth.
+- Startup: emphasize builder mindset, growth, execution, agility, launch, scale.
+- E-commerce/Retail: emphasize acquisition, retention, CRM, performance marketing, customer lifecycle.
 - Do NOT write full resume.
-- Do NOT include name, phone, email, address, date of birth, nationality, or gender.
-- Do NOT update old experience.
-- ONLY create executive_profile, strategic_competencies, current_experience for Dabouq, key_skills, and missing_keywords_added.
+- Do NOT include name, phone, email, address, DOB, nationality, or gender.
+- Do NOT rewrite old roles.
+- Only update executive_profile, strategic_competencies, current_experience, key_skills.
 - current_experience must be exactly 14 bullets.
-- Each current_experience item must be one bullet sentence only.
-- Do not include bullet symbols inside JSON values.
-- Use strong action verbs: Led, Spearheaded, Optimized, Scaled, Delivered, Directed, Drove, Expanded, Strengthened, Transformed, Implemented.
-- Each bullet must show business value, commercial impact, campaign performance, client engagement, growth, retention, acquisition, optimization, or strategic contribution.
-- Mirror required and preferred JD skills where factually reasonable.
-- Use keywords from client engagement, digital marketing, martech, AI, analytics, KSA market, campaign optimization, financial services, B2B/B2B2C, partnerships, stakeholder management, and transformation.
-- Strategic competencies must directly mirror required and preferred JD skills.
-- Key skills must include 35-50 ATS keywords from the JD.
+- Every current_experience item must be one bullet sentence only.
+- No bullet symbols inside JSON values.
+- Use strong action verbs.
+- Match JD keywords truthfully.
 - Keep facts realistic and based on resume.
-- Strong ATS language.
+- missing_keywords should include important JD keywords still weak or absent.
+- improvement_suggestions should say what to improve to reach 95%+.
 - No markdown.
 """
 
     response = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=3000,
+        max_tokens=3300,
         temperature=0.15,
         messages=[{"role": "user", "content": prompt}]
     )
 
     return parse_json(response.content[0].text)
 
-
-def build_final_resume(data):
-    executive_profile = clean_generated_section(data.get("executive_profile", ""))
-    competencies = list_to_lines(data.get("strategic_competencies", []))
-    current_bullets = as_bullets(data.get("current_experience", []))
-    skills_text = list_to_pipe(data.get("key_skills", []))
-
+def build_resume(data):
     return f"""EXECUTIVE PROFILE
-{executive_profile}
+{clean_text(data.get("executive_profile", ""))}
 
 STRATEGIC COMPETENCIES
-{competencies}
+{list_to_lines(data.get("strategic_competencies", []))}
 
 WORK EXPERIENCE
 
 13/01/2025 - CURRENT | JEDDAH, SAUDI ARABIA
 MARKETING & BUSINESS DEVELOPMENT DIRECTOR
 Dabouq Trading Co. (Cars & E-Commerce)
-{current_bullets}
+{as_bullets(data.get("current_experience", []))}
 
 2020 - 01/2025 | JEDDAH, SAUDI ARABIA
 MARKETING AND BUSINESS DEVELOPMENT DIRECTOR
@@ -338,13 +278,8 @@ Spelenzo
 • Handled clients across perfumes, luxury fashion, watches, cosmetics, and telecommunications including Rubaiyat, Arabian Oud, Casio, and Zain.
 • Drove revenue growth across GCC through display advertising, PPC, retargeting, and paid social.
 • Planned and optimized digital marketing campaigns across web, SEO/SEM, email, social media, and display advertising.
-• Planned, executed, and measured experiments and conversion tests.
-• Analyzed online customer behavior and updated action plans to reach defined goals.
-• Monitored brand online reputation and awareness through relevant online presence and content management.
-• Measured and reported performance of digital marketing campaigns, analyzing data to optimize strategy.
-• Developed and executed sales promotions, increasing revenue through targeted campaigns.
-• Identified trends and insights to optimize digital marketing spend.
-• Improved email marketing campaigns and increased web traffic through content initiatives.
+• Measured campaign performance and analyzed data to optimize digital strategy.
+• Developed sales promotions and content initiatives to increase revenue and web traffic.
 
 2009 - 2013 | CAIRO, EGYPT
 SENIOR RELATIONSHIP MANAGER
@@ -368,9 +303,17 @@ German: B2
 French: B2
 
 KEY SKILLS
-{skills_text}
+{list_to_pipe(data.get("key_skills", []))}
 """.strip()
 
+def profile_contact(profile):
+    p1 = [
+        f"Date of birth: {profile['dob']}",
+        f"Nationality: {profile['nationality']}",
+        f"Gender: {profile['gender']}",
+        f"Phone: {profile['phone']}"
+    ]
+    return " | ".join(p1), f"Email: {profile['email']} | Address: {profile['address']}"
 
 def generate_pdf(text):
     buffer = io.BytesIO()
@@ -384,76 +327,22 @@ def generate_pdf(text):
         bottomMargin=26
     )
 
-    title_style = ParagraphStyle(
-        "Title",
-        fontName="Helvetica-Bold",
-        fontSize=19,
-        leading=22,
-        alignment=TA_CENTER,
-        spaceAfter=4
-    )
-
-    contact_style = ParagraphStyle(
-        "Contact",
-        fontName="Helvetica",
-        fontSize=8.3,
-        leading=10.5,
-        alignment=TA_CENTER,
-        spaceAfter=7
-    )
-
-    section_style = ParagraphStyle(
-        "Section",
-        fontName="Helvetica-Bold",
-        fontSize=11.2,
-        leading=14,
-        alignment=TA_LEFT,
-        spaceBefore=9,
-        spaceAfter=4
-    )
-
-    body_style = ParagraphStyle(
-        "Body",
-        fontName="Helvetica",
-        fontSize=8.9,
-        leading=11.6,
-        alignment=TA_LEFT,
-        spaceAfter=3
-    )
-
-    bullet_style = ParagraphStyle(
-        "Bullet",
-        fontName="Helvetica",
-        fontSize=8.9,
-        leading=11.6,
-        leftIndent=13,
-        firstLineIndent=-9,
-        spaceAfter=2.6
-    )
-
-    exp_heading_style = ParagraphStyle(
-        "ExperienceHeading",
-        fontName="Helvetica-Bold",
-        fontSize=9.3,
-        leading=11.6,
-        spaceBefore=6,
-        spaceAfter=2
-    )
+    title = ParagraphStyle("Title", fontName="Helvetica-Bold", fontSize=19, leading=22, alignment=TA_CENTER)
+    contact = ParagraphStyle("Contact", fontName="Helvetica", fontSize=8.3, leading=10.5, alignment=TA_CENTER, spaceAfter=7)
+    section = ParagraphStyle("Section", fontName="Helvetica-Bold", fontSize=11.2, leading=14, alignment=TA_LEFT, spaceBefore=9, spaceAfter=4)
+    body = ParagraphStyle("Body", fontName="Helvetica", fontSize=8.9, leading=11.6, alignment=TA_LEFT, spaceAfter=3)
+    bullet = ParagraphStyle("Bullet", fontName="Helvetica", fontSize=8.9, leading=11.6, leftIndent=13, firstLineIndent=-9, spaceAfter=2.6)
+    heading = ParagraphStyle("Heading", fontName="Helvetica-Bold", fontSize=9.3, leading=11.6, spaceBefore=6, spaceAfter=2)
 
     story = []
+    story.append(Paragraph(USER_PROFILE["name"], title))
 
-    story.append(Paragraph("Abdelrhman El Shishiny", title_style))
-
-    story.append(Paragraph(
-        "Date of birth: 28/04/1987 | Nationality: Egyptian | Gender: Male | Phone: (+966) 577534641<br/>"
-        "Email: elshishinyabdelrhman@gmail.com | Address: Jeddah, Saudi Arabia",
-        contact_style
-    ))
-
+    l1, l2 = profile_contact(USER_PROFILE)
+    story.append(Paragraph(f"{html.escape(l1)}<br/>{html.escape(l2)}", contact))
     story.append(HRFlowable(width="100%", thickness=0.9, color=colors.black))
     story.append(Spacer(1, 7))
 
-    section_names = {
+    sections = {
         "EXECUTIVE PROFILE",
         "STRATEGIC COMPETENCIES",
         "WORK EXPERIENCE",
@@ -475,70 +364,61 @@ def generate_pdf(text):
             continue
 
         escaped = html.escape(line)
-        upper = line.upper().strip()
+        upper = line.upper()
 
-        if upper in section_names:
-            story.append(Paragraph(upper, section_style))
+        if upper in sections:
+            story.append(Paragraph(upper, section))
             story.append(HRFlowable(width="100%", thickness=0.35, color=colors.grey))
             story.append(Spacer(1, 3))
-
         elif date_pattern.search(line):
-            story.append(Paragraph(escaped, exp_heading_style))
-
+            story.append(Paragraph(escaped, heading))
         elif line.isupper() and len(line) < 85:
-            story.append(Paragraph(escaped, exp_heading_style))
-
+            story.append(Paragraph(escaped, heading))
         elif line.startswith("•"):
-            story.append(Paragraph(escaped, bullet_style))
-
+            story.append(Paragraph(escaped, bullet))
         else:
-            story.append(Paragraph(escaped, body_style))
+            story.append(Paragraph(escaped, body))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
 
-
 st.title("Executive Career Hub")
 
 tab1, tab2 = st.tabs(["Generate Resume", "Application History"])
 
-
 with tab1:
     company = st.text_input("Target Company")
     role = st.text_input("Target Role")
-    resume_style = st.selectbox(
-        "Resume Style",
-        [
-            "Executive",
-            "Corporate",
-            "Startup",
-            "ATS Maximum",
-            "Concise",
-            "Achievement Focused"
-        ]
-    )
     jd = st.text_area("Paste Job Description", height=250)
     file = st.file_uploader("Upload Master Resume PDF", type=["pdf"])
 
-    if st.button("Generate ATS Resume"):
+    if st.button("Generate Smart Resume"):
         if not api_key:
             st.error("Missing ANTHROPIC_API_KEY.")
-
         elif not company or not role or not jd or not file:
             st.warning("Fill all fields.")
-
         else:
-            with st.spinner("Creating professional targeted resume..."):
+            with st.spinner("Detecting company style, ATS gaps, and tailoring resume..."):
                 try:
+                    current_hash = jd_hash(company, role, jd)
                     resume_text = extract_pdf(file)
+
                     client = anthropic.Anthropic(api_key=api_key)
+                    data = generate_sections(client, company, role, jd, resume_text)
 
-                    data = generate_sections(client, company, role, jd, resume_text, resume_style)
-                    final_resume = build_final_resume(data)
+                    final_resume = build_resume(data)
 
+                    detected_style = data.get("detected_company_style", "Auto")
+                    company_type = data.get("company_type", "")
+                    company_size = data.get("company_size", "")
+                    company_focus = data.get("company_focus", "")
                     match = max(0, min(100, int(data.get("match", 90))))
                     ats = max(0, min(100, int(data.get("ats", 90))))
+                    interview_probability = max(0, min(100, int(data.get("interview_probability", 80))))
+
+                    missing_keywords = data.get("missing_keywords", [])
+                    suggestions = data.get("improvement_suggestions", [])
 
                     conn.execute("""
                         INSERT INTO applications
@@ -547,31 +427,72 @@ with tab1:
                             company,
                             role,
                             raw_jd,
-                            resume_style,
+                            jd_hash,
+                            detected_style,
+                            company_type,
+                            company_size,
+                            company_focus,
                             tailored_resume,
                             score_match,
-                            score_ats
+                            score_ats,
+                            interview_probability,
+                            missing_keywords,
+                            improvement_suggestions
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         datetime.now().strftime("%Y-%m-%d %H:%M"),
                         company,
                         role,
                         jd,
-                        resume_style,
+                        current_hash,
+                        detected_style,
+                        company_type,
+                        company_size,
+                        company_focus,
                         final_resume,
                         match,
-                        ats
+                        ats,
+                        interview_probability,
+                        json.dumps(missing_keywords),
+                        json.dumps(suggestions)
                     ))
 
                     conn.commit()
 
                     safe_company = re.sub(r"[^a-zA-Z0-9_-]+", "_", company)
 
-                    st.success(f"Match {match}% | ATS {ats}% | Style: {resume_style}")
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Match", f"{match}%")
+                    col2.metric("ATS", f"{ats}%")
+                    col3.metric("Interview Probability", f"{interview_probability}%")
+
+                    st.success(f"Style: {detected_style}")
+
+                    st.info(f"""
+Company Type: {company_type}
+
+Company Size: {company_size}
+
+Company Focus: {company_focus}
+""")
+
+                    if data.get("style_reason"):
+                        st.write("**Style Reason:**", data["style_reason"])
+
+                    if missing_keywords:
+                        st.subheader("ATS Gap Analysis")
+                        for kw in missing_keywords:
+                            st.write(f"❌ {kw}")
+
+                    if suggestions:
+                        st.subheader("How to Reach 95%+")
+                        for item in suggestions:
+                            st.write(f"✅ {item}")
 
                     if data.get("missing_keywords_added"):
-                        st.info("Keywords added: " + ", ".join(data["missing_keywords_added"]))
+                        st.subheader("Keywords Added")
+                        st.write(", ".join(data["missing_keywords_added"]))
 
                     st.download_button(
                         "Download PDF",
@@ -588,55 +509,52 @@ with tab1:
                 except Exception as e:
                     st.error(f"Error: {type(e).__name__}: {e}")
 
-
 with tab2:
     st.header("Application History")
 
     logs = pd.read_sql_query(
-        """
-        SELECT *
-        FROM applications
-        ORDER BY id DESC
-        """,
+        "SELECT * FROM applications ORDER BY id DESC",
         conn
     )
 
     if logs.empty:
         st.info("No applications yet.")
-
     else:
         for _, row in logs.iterrows():
-            company_value = row.get("company", "")
-            role_value = row.get("role", "")
-            style_value = row.get("resume_style", "") or "N/A"
-            match_value = row.get("score_match", 0)
-            ats_value = row.get("score_ats", 0)
-
             with st.expander(
-                f"{company_value} | {role_value} | {style_value} | Match {match_value}% | ATS {ats_value}%"
+                f"{row['company']} | {row['role']} | {row.get('detected_style', 'Auto')} | Match {row['score_match']}% | ATS {row['score_ats']}%"
             ):
-                st.markdown("### Company")
-                st.write(company_value)
-
-                st.markdown("### Role")
-                st.write(role_value)
-
-                st.markdown("### Resume Style")
-                st.write(style_value)
-
-                st.markdown("### Date")
-                st.write(row.get("date", ""))
-
-                st.markdown("### Scores")
-                st.write(f"Match: {match_value}% | ATS: {ats_value}%")
+                st.write("Company:", row["company"])
+                st.write("Role:", row["role"])
+                st.write("Date:", row["date"])
+                st.write("Detected Style:", row.get("detected_style", "Auto"))
+                st.write("Company Type:", row.get("company_type", ""))
+                st.write("Company Size:", row.get("company_size", ""))
+                st.write("Company Focus:", row.get("company_focus", ""))
+                st.write("Interview Probability:", f"{row.get('interview_probability', 0)}%")
 
                 st.markdown("### Job Description")
-                st.text_area(
-                    "Saved JD",
-                    row.get("raw_jd", "") or "",
-                    height=250,
-                    key=f"jd_{row['id']}"
-                )
+                st.text_area("Saved JD", row.get("raw_jd", "") or "", height=250, key=f"jd_{row['id']}")
+
+                try:
+                    missing_saved = json.loads(row.get("missing_keywords") or "[]")
+                except Exception:
+                    missing_saved = []
+
+                try:
+                    suggestions_saved = json.loads(row.get("improvement_suggestions") or "[]")
+                except Exception:
+                    suggestions_saved = []
+
+                if missing_saved:
+                    st.markdown("### ATS Gap Analysis")
+                    for kw in missing_saved:
+                        st.write(f"❌ {kw}")
+
+                if suggestions_saved:
+                    st.markdown("### Improvement Suggestions")
+                    for item in suggestions_saved:
+                        st.write(f"✅ {item}")
 
                 st.markdown("### Resume")
                 st.markdown(
@@ -647,11 +565,7 @@ with tab2:
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    safe_company = re.sub(
-                        r"[^a-zA-Z0-9_-]+",
-                        "_",
-                        str(company_value)
-                    )
+                    safe_company = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(row["company"]))
 
                     st.download_button(
                         "Download PDF",
@@ -662,10 +576,7 @@ with tab2:
                     )
 
                 with col2:
-                    if st.button(
-                        "Delete Application",
-                        key=f"delete_{row['id']}"
-                    ):
+                    if st.button("Delete Application", key=f"delete_{row['id']}"):
                         conn.execute(
                             "DELETE FROM applications WHERE id=?",
                             (int(row["id"]),)
