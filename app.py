@@ -46,6 +46,7 @@ def get_db():
             raw_jd TEXT,
             jd_hash TEXT,
             detected_style TEXT,
+            industry_positioning TEXT,
             company_type TEXT,
             company_size TEXT,
             company_focus TEXT,
@@ -64,6 +65,7 @@ def get_db():
         "raw_jd": "TEXT",
         "jd_hash": "TEXT",
         "detected_style": "TEXT",
+        "industry_positioning": "TEXT",
         "company_type": "TEXT",
         "company_size": "TEXT",
         "company_focus": "TEXT",
@@ -166,6 +168,7 @@ Return ONLY valid JSON.
 
 {{
   "detected_company_style": "Financial Services / Enterprise / Big Tech / Startup / Retail / Consulting / E-commerce / Healthcare / Real Estate / Automotive / Other",
+  "industry_positioning": "short truthful positioning to replace Cars & E-Commerce",
   "company_type": "short company type",
   "company_size": "Startup / Mid-Market / Enterprise / Global Enterprise",
   "company_focus": "short focus",
@@ -179,6 +182,7 @@ Return ONLY valid JSON.
     "PARTNERSHIPS & STAKEHOLDER MANAGEMENT: skill | skill | skill",
     "MARKET & INDUSTRY EXPERTISE: skill | skill | skill"
   ],
+  "current_role_positioning_line": "one strong positioning sentence under Dabouq current role",
   "current_experience": [
     "bullet 1",
     "bullet 2",
@@ -227,13 +231,41 @@ Universal ATS Rules:
 - Do NOT write full resume.
 - Do NOT include name, phone, email, address, DOB, nationality, or gender.
 - Do NOT rewrite old roles.
-- Only update executive_profile, strategic_competencies, current_experience, and key_skills.
+- Only update executive_profile, strategic_competencies, current_role_positioning_line, current_experience, and key_skills.
 - current_experience must be exactly 16 bullets.
 - Every current_experience item must be one bullet sentence only.
 - No bullet symbols inside JSON values.
 - Use strong action verbs.
 - Keep all wording professional, persuasive, executive, and recruiter-friendly.
 - No markdown.
+
+Industry Positioning Rules:
+- Generate industry_positioning based on target company and JD.
+- This replaces the fixed text "(Cars & E-Commerce)" in the current company heading.
+- Use the closest truthful transferable positioning.
+- Keep it short: 2-5 words.
+- Examples:
+  Panda -> E-Commerce & Retail
+  Amazon -> E-Commerce & Marketplace
+  Noon -> E-Commerce & Digital Commerce
+  Visa -> Financial Services & Digital Payments
+  Mastercard -> Financial Services & FinTech
+  PIF -> Investment & Business Growth
+  STC -> Digital Transformation & Technology
+  Careem -> Technology & Digital Platforms
+  Google -> Technology & Digital Growth
+  Automotive companies -> Automotive & E-Commerce
+  Healthcare companies -> Healthcare Marketing & Growth
+  Real Estate companies -> Real Estate & Digital Growth
+  Consulting companies -> Strategy & Business Transformation
+- Do not use "Cars" unless the target company or JD is automotive-related.
+
+Current Role Positioning Line Rules:
+- Create one strong sentence under the current company name.
+- It should broaden the current role into the target industry.
+- It must remain truthful and transferable.
+- Example:
+  Leading commercial growth, customer acquisition, partnerships, digital transformation, and revenue optimization initiatives across multiple business verticals.
 
 Company Style Rules:
 - Financial Services: emphasize client engagement, partnerships, compliance, stakeholders, analytics, commercial growth, banking/financial relationship management.
@@ -261,7 +293,7 @@ Scoring Rules:
 
     response = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=3800,
+        max_tokens=4000,
         temperature=0.12,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -269,6 +301,17 @@ Scoring Rules:
     return parse_json(response.content[0].text)
 
 def build_resume(data):
+    industry_positioning = clean_text(
+        data.get("industry_positioning", "Business Growth & E-Commerce")
+    )
+
+    role_line = clean_text(
+        data.get(
+            "current_role_positioning_line",
+            "Leading commercial growth, customer acquisition, partnerships, digital transformation, and revenue optimization initiatives across multiple business verticals."
+        )
+    )
+
     return f"""EXECUTIVE PROFILE
 {clean_text(data.get("executive_profile", ""))}
 
@@ -279,7 +322,8 @@ WORK EXPERIENCE
 
 13/01/2025 - CURRENT | JEDDAH, SAUDI ARABIA
 MARKETING & BUSINESS DEVELOPMENT DIRECTOR
-Dabouq Trading Co. (Cars & E-Commerce)
+Dabouq Trading Co. ({industry_positioning})
+{role_line}
 {as_bullets(data.get("current_experience", []))}
 
 2020 - 01/2025 | JEDDAH, SAUDI ARABIA
@@ -357,6 +401,7 @@ def generate_pdf(text):
     body = ParagraphStyle("Body", fontName="Helvetica", fontSize=8.9, leading=11.6, alignment=TA_LEFT, spaceAfter=3)
     bullet = ParagraphStyle("Bullet", fontName="Helvetica", fontSize=8.9, leading=11.6, leftIndent=13, firstLineIndent=-9, spaceAfter=2.6)
     heading = ParagraphStyle("Heading", fontName="Helvetica-Bold", fontSize=9.3, leading=11.6, spaceBefore=6, spaceAfter=2)
+    italic = ParagraphStyle("Italic", fontName="Helvetica-Oblique", fontSize=8.9, leading=11.6, alignment=TA_LEFT, spaceAfter=4)
 
     story = []
     story.append(Paragraph(USER_PROFILE["name"], title))
@@ -398,6 +443,8 @@ def generate_pdf(text):
             story.append(Paragraph(escaped, heading))
         elif line.isupper() and len(line) < 85:
             story.append(Paragraph(escaped, heading))
+        elif line.startswith("Leading "):
+            story.append(Paragraph(escaped, italic))
         elif line.startswith("•"):
             story.append(Paragraph(escaped, bullet))
         else:
@@ -423,7 +470,7 @@ with tab1:
         elif not company or not role or not jd or not file:
             st.warning("Fill all fields.")
         else:
-            with st.spinner("Optimizing resume for strongest transferable ATS match..."):
+            with st.spinner("Optimizing resume with dynamic industry positioning..."):
                 try:
                     current_hash = make_hash(company, role, jd)
                     resume_text = extract_pdf(file)
@@ -433,6 +480,7 @@ with tab1:
                     final_resume = build_resume(data)
 
                     detected_style = data.get("detected_company_style", "Auto")
+                    industry_positioning = data.get("industry_positioning", "Business Growth & E-Commerce")
                     company_type = data.get("company_type", "")
                     company_size = data.get("company_size", "")
                     company_focus = data.get("company_focus", "")
@@ -452,6 +500,7 @@ with tab1:
                             raw_jd,
                             jd_hash,
                             detected_style,
+                            industry_positioning,
                             company_type,
                             company_size,
                             company_focus,
@@ -462,7 +511,7 @@ with tab1:
                             missing_keywords,
                             improvement_suggestions
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         datetime.now().strftime("%Y-%m-%d %H:%M"),
                         company,
@@ -470,6 +519,7 @@ with tab1:
                         jd,
                         current_hash,
                         detected_style,
+                        industry_positioning,
                         company_type,
                         company_size,
                         company_focus,
@@ -491,6 +541,7 @@ with tab1:
                     col3.metric("Interview Probability", f"{interview_probability}%")
 
                     st.success(f"Style: {detected_style}")
+                    st.info(f"Industry Positioning: Dabouq Trading Co. ({industry_positioning})")
 
                     st.info(f"""
 Company Type: {company_type}
@@ -551,6 +602,7 @@ with tab2:
                 st.write("Role:", row["role"])
                 st.write("Date:", row["date"])
                 st.write("Detected Style:", row.get("detected_style", "Auto"))
+                st.write("Industry Positioning:", row.get("industry_positioning", ""))
                 st.write("Company Type:", row.get("company_type", ""))
                 st.write("Company Size:", row.get("company_size", ""))
                 st.write("Company Focus:", row.get("company_focus", ""))
